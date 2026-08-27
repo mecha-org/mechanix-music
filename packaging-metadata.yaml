@@ -1,9 +1,0 @@
-name: packaging-metadata
-version: 1.0.0
-summary: Metadata for Mechanix Music app packaging
-applications:
-  - name: music
-    folder: .
-    binary: mechanix_music
-    description: "Mechanix Music application"
-    maintainer: "Ojas <ojasc@ext.mechasystems.com>"

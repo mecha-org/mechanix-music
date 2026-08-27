@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Mechanix Music
+Comment=Music player for Mechanix OS
+Exec=mechanix_music -s 1
+Icon=org.mechanix.music
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+StartupNotify=true
+StartupWMClass=org.mechanix.music
