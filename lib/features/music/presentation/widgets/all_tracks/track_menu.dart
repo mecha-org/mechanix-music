@@ -115,7 +115,6 @@ class TrackMenu extends StatelessWidget {
         return MechanixIconButton.standard(
           key: ValueKey('track_menu_button_${song.path}'),
           type: IconButtonType.rounded,
-          size: IconButtonSize.small,
           icon: ImageIcon(
             const AssetImage(MusicIcons.threedotIcon),
             color: theme.colorScheme.onSurface,

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:mechanix_music/core/utils/icons.dart';
 import 'package:mechanix_music/features/music/bloc/player/player_bloc.dart';
 import 'package:mechanix_music/features/music/bloc/player/player_event.dart';
 import 'package:mechanix_music/features/music/bloc/player/player_state.dart';
@@ -43,22 +44,35 @@ class PlaylistTrackTile extends StatelessWidget {
       selector: (state) => state.song?.path == song.path,
       builder: (context, isCurrent) {
         return MechanixSwipableListTile(
+          extentRatio: 0.16,
+          swipedBackgroundColor: theme.colorScheme.outlineVariant,
+          theme: ListTileThemeDataConfig(
+            supportingTextStyle: theme.textTheme.titleMedium?.copyWith(
+              color: theme.colorScheme.onSecondaryFixedVariant,
+            ),
+            trailingTextStyle: theme.textTheme.titleSmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
           // The ⋮ action opens the track menu; TrackMenu closes the swipe
           // when the menu closes, so it must not close on tap.
           autoClose: false,
           selected: isCurrent,
           contentPadding: const EdgeInsets.symmetric(
-            horizontal: 20,
-            vertical: 10,
+            horizontal: 24,
+            vertical: 16,
           ),
           leadingWidgets: [
-            TrackArtwork(artworkBase64: song.artworkBase64, highlighted: isCurrent),
+            TrackArtwork(
+              artworkBase64: song.artworkBase64,
+              highlighted: isCurrent,
+            ),
           ],
           label: Text(
             song.title,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.titleMedium?.copyWith(
+            style: theme.textTheme.titleLarge?.copyWith(
               color: theme.colorScheme.onSurface,
             ),
           ),
@@ -67,10 +81,11 @@ class PlaylistTrackTile extends StatelessWidget {
           trailingWidgets: [
             ReorderableDragStartListener(
               index: index,
-              child: Icon(
-                Icons.drag_handle,
+              child: Image.asset(
+                MusicIcons.dragHandle,
                 key: ValueKey('drag_handle_${song.path}'),
-                size: 20,
+                width: 24,
+                height: 24,
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),

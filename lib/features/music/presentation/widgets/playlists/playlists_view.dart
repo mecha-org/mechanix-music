@@ -4,6 +4,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:mechanix_music/core/utils/icons.dart';
 import 'package:mechanix_music/features/music/bloc/playlist/playlist_bloc.dart';
 import 'package:mechanix_music/features/music/data/models/playlist.dart';
 import 'package:mechanix_music/features/music/presentation/screens/playlist_detail_screen.dart';
@@ -72,8 +73,12 @@ class PlaylistsView extends StatelessWidget {
             size: MechanixFloatingActionButtonSize.medium,
             backgroundColor: theme.colorScheme.primary,
             key: const ValueKey('create_playlist_button'),
-            tooltip: l10n.createPlaylist,
-            icon: Icon(Icons.add, color: theme.colorScheme.onSurface, size: 32),
+            icon: Image.asset(
+              MusicIcons.add,
+              color: theme.colorScheme.onSurface,
+              width: 28,
+              height: 28,
+            ),
             onPressed: () => _create(context),
           ),
         ),
@@ -91,10 +96,11 @@ class PlaylistRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
-    final secondary = theme.textTheme.bodySmall?.copyWith(
-      fontSize: 12,
-      color: theme.colorScheme.onSurfaceVariant,
+    final secondary = theme.textTheme.titleMedium?.copyWith(
+      color: theme.colorScheme.onSecondaryFixed,
+      fontWeight: FontWeight.w300,
     );
+
     final owner = Platform.environment['USER'];
     final tracks = l10n.tracksCount(
       playlist.trackCount.toString().padLeft(2, '0'),
@@ -111,21 +117,21 @@ class PlaylistRow extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         child: Row(
           children: [
-            PlaylistCollage(songPaths: playlist.songPaths),
+            PlaylistCollage(songPaths: playlist.songPaths, size: 128),
             const SizedBox(width: 20),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    playlist.name.toUpperCase(),
+                    playlist.name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleMedium?.copyWith(
+                    style: theme.textTheme.headlineSmall?.copyWith(
                       color: theme.colorScheme.onSurface,
                     ),
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 8),
                   Text.rich(
                     TextSpan(
                       children: [

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:mechanix_music/core/utils/icons.dart';
 import 'package:mechanix_music/features/music/bloc/playlist/playlist_bloc.dart';
 import 'package:mechanix_music/features/music/data/models/playlist.dart';
 import 'package:mechanix_music/l10n/music_localizations.dart';
@@ -72,9 +73,11 @@ class _RenamePlaylistSheetState extends State<RenamePlaylistSheet> {
                     MechanixIconButton.standard(
                       key: const ValueKey('rename_playlist_back'),
                       type: IconButtonType.rounded,
-                      icon: Icon(
-                        Icons.chevron_left,
+                      icon: Image.asset(
+                        MusicIcons.backIcon,
                         color: theme.colorScheme.onSurface,
+                        width: 24,
+                        height: 24,
                       ),
                       onPressed: () => Navigator.of(context).pop(),
                     ),
@@ -82,7 +85,7 @@ class _RenamePlaylistSheetState extends State<RenamePlaylistSheet> {
                     Expanded(
                       child: Text(
                         l10n.renamePlaylist,
-                        style: theme.textTheme.titleMedium?.copyWith(
+                        style: theme.textTheme.headlineSmall?.copyWith(
                           color: theme.colorScheme.onSurface,
                         ),
                       ),
@@ -90,21 +93,36 @@ class _RenamePlaylistSheetState extends State<RenamePlaylistSheet> {
                     MechanixIconButton.standard(
                       key: const ValueKey('rename_playlist_save'),
                       type: IconButtonType.rounded,
-                      icon: const Icon(Icons.check),
+                      icon: Image.asset(
+                        MusicIcons.check,
+                        color: theme.colorScheme.onSurface,
+                        width: 24,
+                        height: 24,
+                      ),
                       onPressed: isValid ? _save : null,
                     ),
                   ],
                 ),
-                const SizedBox(height: 12),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  padding: const EdgeInsets.fromLTRB(24, 32, 24, 20),
                   child: MechanixTextField.outlined(
                     key: const ValueKey('rename_playlist_field'),
+                    decoration: InputDecoration(
+                      contentPadding: const EdgeInsets.symmetric(vertical: 16),
+                      enabledBorder: UnderlineInputBorder(
+                        borderSide: BorderSide(
+                          color: theme.colorScheme.outline,
+                        ),
+                      ),
+                    ),
                     controller: _controller,
                     autofocus: true,
                     hintText: l10n.playlistName,
                     textInputAction: TextInputAction.done,
                     onSubmitted: (_) => _save(),
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      color: theme.colorScheme.onSurface,
+                    ),
                   ),
                 ),
               ],

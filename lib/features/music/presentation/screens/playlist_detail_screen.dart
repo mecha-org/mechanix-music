@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:mechanix_music/core/utils/icons.dart';
 import 'package:mechanix_music/features/music/bloc/player/player_bloc.dart';
 import 'package:mechanix_music/features/music/bloc/player/player_state.dart';
 import 'package:mechanix_music/features/music/bloc/playlist/playlist_bloc.dart';
@@ -38,13 +39,19 @@ class PlaylistDetailScreen extends StatelessWidget {
     final theme = Theme.of(context);
 
     return Scaffold(
+      backgroundColor: theme.colorScheme.surfaceContainerLowest,
       appBar: MechanixAppBar.small(
         primary: false,
         backgroundColor: Colors.transparent,
         leading: MechanixIconButton.standard(
           key: const ValueKey('playlist_back_button'),
           type: IconButtonType.rounded,
-          icon: Icon(Icons.chevron_left, color: theme.colorScheme.onSurface),
+          icon: Image.asset(
+            MusicIcons.backIcon,
+            color: theme.colorScheme.onSurface,
+            width: 24,
+            height: 24,
+          ),
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: isNew ? Text(l10n.createPlaylist) : null,
@@ -141,19 +148,22 @@ class _PlaylistBodyState extends State<_PlaylistBody> {
             SliverToBoxAdapter(child: _Header(playlist: playlist)),
             SliverReorderableList(
               itemCount: songs.length,
-              onReorder: (oldIndex, newIndex) =>
+              onReorderItem: (oldIndex, newIndex) =>
                   _onReorder(songs, oldIndex, newIndex),
-              itemBuilder: (context, index) => PlaylistTrackTile(
+              itemBuilder: (context, index) => Padding(
                 key: ValueKey('playlist_track_${songs[index].path}'),
-                index: index,
-                song: songs[index],
-                playlistId: playlist.id,
-                playlistSongs: songs,
+                padding: const EdgeInsets.only(bottom: 20),
+                child: PlaylistTrackTile(
+                  index: index,
+                  song: songs[index],
+                  playlistId: playlist.id,
+                  playlistSongs: songs,
+                ),
               ),
             ),
             SliverToBoxAdapter(child: _AddTracksHeader(playlist: playlist)),
             _AddTracksList(playlist: playlist),
-            const SliverToBoxAdapter(child: SizedBox(height: 16)),
+            const SliverToBoxAdapter(child: SizedBox(height: 20)),
           ],
         ),
       ),
@@ -176,7 +186,7 @@ class _Header extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          PlaylistCollage(songPaths: playlist.songPaths),
+          PlaylistCollage(songPaths: playlist.songPaths, size: 128),
           const SizedBox(width: 16),
           Expanded(
             child: Padding(
@@ -185,22 +195,21 @@ class _Header extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    playlist.name.toUpperCase(),
+                    playlist.name,
                     key: const ValueKey('playlist_detail_name'),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleMedium?.copyWith(
+                    style: theme.textTheme.headlineSmall?.copyWith(
                       color: theme.colorScheme.onSurface,
                     ),
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 8),
                   Text(
                     l10n.tracksCount(
                       playlist.trackCount.toString().padLeft(2, '0'),
                     ),
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      fontSize: 12,
-                      color: theme.colorScheme.onSurfaceVariant,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: theme.colorScheme.onSecondaryFixed,
                     ),
                   ),
                 ],
@@ -212,8 +221,12 @@ class _Header extends StatelessWidget {
             MechanixIconButton.standard(
               key: const ValueKey('rename_playlist_button'),
               type: IconButtonType.rounded,
-              size: IconButtonSize.small,
-              icon: Icon(Icons.edit_outlined, color: theme.colorScheme.primary),
+              icon: Image.asset(
+                MusicIcons.edit,
+                color: theme.colorScheme.primary,
+                width: 20,
+                height: 20,
+              ),
               onPressed: () => showRenamePlaylistSheet(context, playlist),
             ),
         ],
@@ -230,16 +243,18 @@ class _AddTracksHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context)!;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const SizedBox(height: 8),
         const MechanixDivider(),
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 28),
           child: Text(
-            AppLocalizations.of(context)!.addTracksTo(playlist.name),
-            style: theme.textTheme.titleMedium?.copyWith(
+            l10n.addTracksTo(playlist.name),
+            style: theme.textTheme.headlineSmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
@@ -283,35 +298,53 @@ class _AddTracksList extends StatelessWidget {
               context.read<SongBloc>().add(const SongLoadMore());
             }
             final song = candidates[index];
-            return MechanixListTile(
-              key: ValueKey('add_track_${song.path}'),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 20,
-                vertical: 10,
-              ),
-              leadingWidgets: [TrackArtwork(artworkBase64: song.artworkBase64)],
-              label: Text(
-                song.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleMedium?.copyWith(
-                  color: theme.colorScheme.onSurface,
-                ),
-              ),
-              supportingText: song.artist,
-              trailingText: song.duration,
-              trailingWidgets: [
-                MechanixIconButton.filled(
-                  key: ValueKey('add_track_button_${song.path}'),
-                  type: IconButtonType.rounded,
-                  size: IconButtonSize.xSmall,
-                  backgroundColor: theme.colorScheme.secondaryContainer,
-                  icon: Icon(Icons.add, color: theme.colorScheme.onSurface),
-                  onPressed: () => context.read<PlaylistBloc>().add(
-                    PlaylistSongAdded(playlist.id, song.path),
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 20),
+              child: MechanixListTile(
+                theme: ListTileThemeDataConfig(
+                  supportingTextStyle: theme.textTheme.titleMedium?.copyWith(
+                    color: theme.colorScheme.onSecondaryFixedVariant,
+                  ),
+                  trailingTextStyle: theme.textTheme.titleSmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
-              ],
+                key: ValueKey('add_track_${song.path}'),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 16,
+                ),
+                leadingWidgets: [
+                  TrackArtwork(artworkBase64: song.artworkBase64),
+                ],
+                label: Text(
+                  song.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    color: theme.colorScheme.onSurface,
+                  ),
+                ),
+                supportingText: song.artist,
+                trailingText: song.duration,
+                trailingWidgets: [
+                  MechanixIconButton.filled(
+                    key: ValueKey('add_track_button_${song.path}'),
+                    type: IconButtonType.rounded,
+                    size: IconButtonSize.small,
+                    backgroundColor: theme.colorScheme.secondary,
+                    icon: Image.asset(
+                      MusicIcons.add,
+                      color: theme.colorScheme.onSurface,
+                      width: 24,
+                      height: 24,
+                    ),
+                    onPressed: () => context.read<PlaylistBloc>().add(
+                      PlaylistSongAdded(playlist.id, song.path),
+                    ),
+                  ),
+                ],
+              ),
             );
           },
         );

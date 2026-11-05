@@ -70,7 +70,8 @@ class _PlaylistCollageState extends State<PlaylistCollage> {
       colorScheme.primary,
       colorScheme.onSurface,
     ];
-    const gap = 4.0;
+    // The four vinyls touch, as in the design (128 px → four 64 px discs).
+    const gap = 0.0;
     final cell = (size - gap) / 2;
 
     return SizedBox.square(
@@ -91,7 +92,8 @@ class _PlaylistCollageState extends State<PlaylistCollage> {
   }
 }
 
-/// A small vinyl: dark disc with a round label (artwork or a solid color).
+/// A small vinyl: dark grooved disc with a round label (artwork or a solid
+/// color) and a spindle hole.
 class MiniVinyl extends StatelessWidget {
   const MiniVinyl({
     super.key,
@@ -104,52 +106,104 @@ class MiniVinyl extends StatelessWidget {
   final Color labelColor;
   final String? artworkBase64;
 
+  /// Label diameter relative to the disc.
+  static const double _labelRatio = 0.5;
+
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final labelSize = diameter * 0.55;
+    final labelSize = diameter * _labelRatio;
     final bytes = ArtworkCache.decode(artworkBase64);
+    final hole = Container(
+      width: diameter * 0.03,
+      height: diameter * 0.03,
+      decoration: const BoxDecoration(
+        shape: BoxShape.circle,
+        color: Colors.black,
+      ),
+    );
     final solidLabel = DecoratedBox(
       decoration: BoxDecoration(shape: BoxShape.circle, color: labelColor),
-      child: Center(
-        child: Container(
-          width: diameter * 0.06,
-          height: diameter * 0.06,
-          decoration: const BoxDecoration(
-            shape: BoxShape.circle,
-            color: Color(0xFF0A0A0A),
+      child: Center(child: hole),
+    );
+
+    return SizedBox.square(
+      dimension: diameter,
+      child: CustomPaint(
+        painter: const _GroovesPainter(labelRatio: _labelRatio),
+        child: Center(
+          child: SizedBox.square(
+            dimension: labelSize,
+            child: bytes == null
+                ? solidLabel
+                : Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      ClipOval(
+                        child: Image(
+                          image: ResizeImage(
+                            MemoryImage(bytes),
+                            width:
+                                (labelSize *
+                                        MediaQuery.devicePixelRatioOf(context))
+                                    .ceil(),
+                            policy: ResizeImagePolicy.fit,
+                          ),
+                          fit: BoxFit.cover,
+                          gaplessPlayback: true,
+                          errorBuilder: (_, _, _) => solidLabel,
+                        ),
+                      ),
+                      Center(child: hole),
+                    ],
+                  ),
           ),
         ),
       ),
     );
+  }
+}
 
-    return Container(
-      width: diameter,
-      height: diameter,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: colorScheme.surfaceContainerHigh,
-      ),
-      alignment: Alignment.center,
-      child: SizedBox.square(
-        dimension: labelSize,
-        child: bytes == null
-            ? solidLabel
-            : ClipOval(
-                child: Image(
-                  image: ResizeImage(
-                    MemoryImage(bytes),
-                    width:
-                        (labelSize * MediaQuery.devicePixelRatioOf(context))
-                            .ceil(),
-                    policy: ResizeImagePolicy.fit,
-                  ),
-                  fit: BoxFit.cover,
-                  gaplessPlayback: true,
-                  errorBuilder: (_, _, _) => solidLabel,
-                ),
-              ),
-      ),
+/// The vinyl disc: a dark circle with fine concentric grooves between the
+/// label and the rim, as in the design.
+class _GroovesPainter extends CustomPainter {
+  const _GroovesPainter({required this.labelRatio});
+
+  final double labelRatio;
+
+  static const _disc = Color(0xFF141414);
+  static const _groove = Color(0xFF222222);
+  static const _rim = Color(0xFF0C0C0C);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    final radius = size.shortestSide / 2;
+
+    canvas.drawCircle(center, radius, Paint()..color = _disc);
+
+    // About ten grooves on a 64 px disc, scaling with the disc.
+    final spacing = size.shortestSide * 0.024;
+    final groove = Paint()
+      ..color = _groove
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = size.shortestSide * 0.008
+      ..isAntiAlias = true;
+    final first = radius * labelRatio + spacing;
+    for (var r = first; r < radius - spacing; r += spacing) {
+      canvas.drawCircle(center, r, groove);
+    }
+
+    canvas.drawCircle(
+      center,
+      radius - size.shortestSide * 0.006,
+      Paint()
+        ..color = _rim
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = size.shortestSide * 0.012,
     );
   }
+
+  @override
+  bool shouldRepaint(_GroovesPainter oldDelegate) =>
+      oldDelegate.labelRatio != labelRatio;
 }

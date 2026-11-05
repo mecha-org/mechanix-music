@@ -36,6 +36,8 @@ class AllTracksTile extends StatelessWidget {
       selector: (state) => state.song?.path == song.path,
       builder: (context, isCurrent) {
         return MechanixSwipableListTile(
+          extentRatio: 0.16,
+          swipedBackgroundColor: theme.colorScheme.outlineVariant,
           theme: ListTileThemeDataConfig(
             supportingTextStyle: theme.textTheme.titleMedium?.copyWith(
               color: theme.colorScheme.onSecondaryFixedVariant,

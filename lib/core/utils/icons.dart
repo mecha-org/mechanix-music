@@ -17,4 +17,8 @@ class MusicIcons {
   static const String playerDisc = 'assets/icons/playerdisc.png';
   static const String add = 'assets/icons/add.png';
   static const String timer = 'assets/icons/timer.png';
+  static const String edit = 'assets/icons/edit.png';
+  static const String check = 'assets/icons/check.png';
+  static const String dragHandle = 'assets/icons/drag_handle.png';
+  static const String delete = 'assets/icons/delete.png';
 }
