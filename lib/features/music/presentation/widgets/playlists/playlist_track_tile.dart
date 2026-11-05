@@ -1,0 +1,93 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:mechanix_music/features/music/bloc/player/player_bloc.dart';
+import 'package:mechanix_music/features/music/bloc/player/player_event.dart';
+import 'package:mechanix_music/features/music/bloc/player/player_state.dart';
+import 'package:mechanix_music/features/music/bloc/playlist/playlist_bloc.dart';
+import 'package:mechanix_music/features/music/data/models/song_model.dart';
+import 'package:mechanix_music/features/music/presentation/widgets/all_tracks/track_artwork.dart';
+import 'package:mechanix_music/features/music/presentation/widgets/all_tracks/track_menu.dart';
+import 'package:widgets/widgets.dart';
+
+/// A song row inside a playlist: tap to play the playlist from this song,
+/// drag the handle to reorder, swipe for the menu (play next, favourite,
+/// remove).
+class PlaylistTrackTile extends StatelessWidget {
+  const PlaylistTrackTile({
+    super.key,
+    required this.index,
+    required this.song,
+    required this.playlistId,
+    required this.playlistSongs,
+  });
+
+  /// Position in the reorderable list (for the drag handle).
+  final int index;
+  final SongModel song;
+  final String playlistId;
+
+  /// The playlist's songs, used as the play queue.
+  final List<SongModel> playlistSongs;
+
+  void _play(BuildContext context) {
+    final playback = context.read<PlaybackBloc>();
+    playback.add(PlaybackListUpdated(playlistSongs, followsLibrary: false));
+    playback.add(PlaybackPlay(song));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return BlocSelector<PlaybackBloc, PlaybackState, bool>(
+      selector: (state) => state.song?.path == song.path,
+      builder: (context, isCurrent) {
+        return MechanixSwipableListTile(
+          // The ⋮ action opens the track menu; TrackMenu closes the swipe
+          // when the menu closes, so it must not close on tap.
+          autoClose: false,
+          selected: isCurrent,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 20,
+            vertical: 10,
+          ),
+          leadingWidgets: [
+            TrackArtwork(artworkBase64: song.artworkBase64, highlighted: isCurrent),
+          ],
+          label: Text(
+            song.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: theme.colorScheme.onSurface,
+            ),
+          ),
+          supportingText: song.artist,
+          trailingText: song.duration,
+          trailingWidgets: [
+            ReorderableDragStartListener(
+              index: index,
+              child: Icon(
+                Icons.drag_handle,
+                key: ValueKey('drag_handle_${song.path}'),
+                size: 20,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+          onTap: () => _play(context),
+          actions: [
+            TrackMenu(
+              song: song,
+              showAddToPlaylist: false,
+              showSleepTimer: false,
+              onRemove: () => context.read<PlaylistBloc>().add(
+                PlaylistSongRemoved(playlistId, song.path),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}

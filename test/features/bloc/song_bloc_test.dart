@@ -538,4 +538,33 @@ void main() {
       expect(bloc.isClosed, isTrue);
     });
   });
+
+  group('SongToggleFavourite', () {
+    blocTest<SongBloc, SongState>(
+      'marks a song as favourite through the repository',
+      setUp: () => when(
+        () => repository.setFavourite(any(), any()),
+      ).thenAnswer((_) async {}),
+      build: buildBloc,
+      act: (bloc) => bloc.add(SongToggleFavourite(songs(1).first)),
+      verify: (_) => verify(
+        () => repository.setFavourite(songs(1).first.path, true),
+      ).called(1),
+    );
+
+    blocTest<SongBloc, SongState>(
+      'removes a favourite song from the favourites',
+      setUp: () => when(
+        () => repository.setFavourite(any(), any()),
+      ).thenAnswer((_) async {}),
+      build: buildBloc,
+      act: (bloc) {
+        final song = songs(1).first..isFavourite = true;
+        bloc.add(SongToggleFavourite(song));
+      },
+      verify: (_) => verify(
+        () => repository.setFavourite(songs(1).first.path, false),
+      ).called(1),
+    );
+  });
 }

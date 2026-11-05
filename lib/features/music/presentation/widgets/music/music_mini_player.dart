@@ -1,36 +1,41 @@
 import 'dart:async';
-import 'dart:io';
+
+import 'package:mechanix_music/core/utils/artwork.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:mechanix_music/core/utils/enums.dart';
+import 'package:mechanix_music/features/music/presentation/screens/music_screen.dart';
 import 'package:mechanix_music/l10n/music_localizations.dart';
-import 'package:mechanix_music/core/utils/app_routes.dart';
-import 'package:mechanix_music/core/utils/colors.dart';
 import 'package:mechanix_music/core/utils/icons.dart';
-import 'package:mechanix_music/core/widgets/music_button.dart';
 import 'package:mechanix_music/features/music/bloc/player/player_bloc.dart';
 import 'package:mechanix_music/features/music/bloc/player/player_event.dart';
 import 'package:mechanix_music/features/music/bloc/player/player_state.dart';
 import 'package:mechanix_music/features/music/data/repository/playback_repository.dart';
+import 'package:widgets/widgets.dart';
 
 class MusicMiniPlayer extends StatelessWidget {
   const MusicMiniPlayer({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
     return GestureDetector(
-      onTap: () => Navigator.of(context).pushNamed(AppRoutes.player),
+      onTap: () => Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (context) => const MusicScreen())),
       behavior: HitTestBehavior.translucent,
       child: Container(
         height: 72,
-        color: MusicColors.backgroundColor,
+        color: colorScheme.secondaryContainer,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         child: Row(
           children: [
             BlocSelector<PlaybackBloc, PlaybackState, String?>(
-              selector: (state) => state.song?.artworkPath,
-              builder: (context, artworkPath) =>
-                  _ProgressArtwork(artworkPath: artworkPath),
+              selector: (state) => state.song?.artworkBase64,
+              builder: (context, artworkBase64) =>
+                  _ProgressArtwork(artworkBase64: artworkBase64),
             ),
             const SizedBox(width: 12),
 
@@ -52,21 +57,16 @@ class MusicMiniPlayer extends StatelessWidget {
                         children: [
                           Text(
                             title,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 14,
-                              height: 1.2,
-                              fontWeight: FontWeight.w500,
+                            style: theme.textTheme.titleLarge?.copyWith(
+                              color: colorScheme.onSurface,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
                           Text(
                             artist,
-                            style: const TextStyle(
-                              color: MusicColors.timeLabelColor,
-                              fontSize: 12,
-                              height: 1.25,
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -82,14 +82,15 @@ class MusicMiniPlayer extends StatelessWidget {
               selector: (state) =>
                   state.status == PlaybackStatus.playing ||
                   state.status == PlaybackStatus.loading,
-              builder: (context, isPlaying) => MusicButton(
-                boxSize: 44,
-                iconSize: 24,
-                iconPath: isPlaying
-                    ? MusicIcons.pauseIcon
-                    : MusicIcons.resumeIcon,
+              builder: (context, isPlaying) => MechanixIconButton.standard(
+                icon: Image.asset(
+                  isPlaying ? MusicIcons.pauseIcon : MusicIcons.resumeIcon,
+                  color: colorScheme.onSurface,
+                  height: 32,
+                  width: 32,
+                ),
                 isSelected: false,
-                onTap: () => context.read<PlaybackBloc>().add(
+                onPressed: () => context.read<PlaybackBloc>().add(
                   isPlaying ? const PlaybackPause() : const PlaybackResume(),
                 ),
               ),
@@ -102,9 +103,9 @@ class MusicMiniPlayer extends StatelessWidget {
 }
 
 class _ProgressArtwork extends StatefulWidget {
-  const _ProgressArtwork({required this.artworkPath});
+  const _ProgressArtwork({required this.artworkBase64});
 
-  final String? artworkPath;
+  final String? artworkBase64;
 
   @override
   State<_ProgressArtwork> createState() => _ProgressArtworkState();
@@ -162,6 +163,9 @@ class _ProgressArtworkState extends State<_ProgressArtwork> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorscheme = theme.colorScheme;
+
     return BlocListener<PlaybackBloc, PlaybackState>(
       listenWhen: (prev, curr) => prev.songDuration != curr.songDuration,
       listener: (_, state) =>
@@ -185,15 +189,15 @@ class _ProgressArtworkState extends State<_ProgressArtwork> {
                       value: _progress,
                       strokeWidth: 2,
                       backgroundColor: Colors.transparent,
-                      valueColor: const AlwaysStoppedAnimation<Color>(
-                        MusicColors.titleColor,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        colorscheme.primary,
                       ),
                     ),
                   ),
                 ),
               ),
               ClipOval(
-                child: _ArtworkWidget(path: widget.artworkPath, size: 36),
+                child: _ArtworkWidget(artwork: widget.artworkBase64, size: 36),
               ),
             ],
           ),
@@ -204,23 +208,33 @@ class _ProgressArtworkState extends State<_ProgressArtwork> {
 }
 
 class _ArtworkWidget extends StatelessWidget {
-  final String? path;
+  /// Base64 cover art of the song.
+  final String? artwork;
   final double size;
 
-  const _ArtworkWidget({required this.path, required this.size});
+  const _ArtworkWidget({required this.artwork, required this.size});
 
   @override
   Widget build(BuildContext context) {
-    if (path != null) {
-      final file = File(path!);
-
-      if (file.existsSync()) {
-        return Image.file(file, width: size, height: size, fit: BoxFit.cover);
-      }
+    final bytes = ArtworkCache.decode(artwork);
+    if (bytes != null) {
+      return Image.memory(
+        bytes,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        gaplessPlayback: true,
+        errorBuilder: (_, _, _) => Image.asset(
+          MusicIcons.musicNote,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+        ),
+      );
     }
 
     return Image.asset(
-      MusicIcons.artworkIcon,
+      MusicIcons.musicNote,
       width: size,
       height: size,
       fit: BoxFit.cover,

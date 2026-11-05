@@ -1,20 +1,15 @@
+import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 import 'package:mechanix_music/core/utils/app_logger.dart';
 import 'package:mechanix_music/core/utils/constants.dart';
 import 'package:mechanix_music/features/music/data/models/song_model.dart';
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 
 class FileScannerService {
-  // Artwork cache dir — initialized once on first use
-  Directory? _artworkCacheDir;
-
-  FileScannerService({Directory? artworkCacheDir})
-    : _artworkCacheDir = artworkCacheDir;
+  FileScannerService();
 
   /// Scans [dirPath] (non-recursive) for audio files.
   Future<Map<String, SongModel>> scanDirectory(String dirPath) async {
@@ -95,11 +90,12 @@ class FileScannerService {
           ? _formatDuration(meta!.duration!.inSeconds)
           : null;
 
-      // Artwork
-      String? artworkPath;
+      // Artwork: the embedded cover, kept as base64 (stored in the index).
+      String? artworkBase64;
       final pictures = meta?.pictures;
       if (pictures != null && pictures.isNotEmpty) {
-        artworkPath = await _saveArtwork(id, pictures.first.bytes);
+        final bytes = pictures.first.bytes;
+        if (bytes.isNotEmpty) artworkBase64 = base64Encode(bytes);
       }
 
       return SongModel(
@@ -109,7 +105,7 @@ class FileScannerService {
         artist: artist,
         album: album,
         duration: duration,
-        artworkPath: artworkPath,
+        artworkBase64: artworkBase64,
       );
     } on FileSystemException catch (e) {
       AppLogger.i('[FileScannerService] Cannot read file "$filePath": $e');
@@ -120,43 +116,6 @@ class FileScannerService {
       );
       return null;
     }
-  }
-
-  /// Saves raw artwork [bytes] to the app's support directory.
-  Future<String?> _saveArtwork(String songId, Uint8List bytes) async {
-    try {
-      final cacheDir = await _getArtworkCacheDir();
-
-      final artworkFile = File(p.join(cacheDir.path, '$songId.jpg'));
-
-      // Skip writing if artwork already cached from a previous scan
-      if (await artworkFile.exists()) return artworkFile.path;
-
-      await artworkFile.writeAsBytes(bytes, flush: true);
-
-      AppLogger.i('[FileScannerService] Artwork saved: ${artworkFile.path}');
-      return artworkFile.path;
-    } catch (e) {
-      AppLogger.i(
-        '[FileScannerService] Failed to save artwork for "$songId": $e',
-      );
-      return null;
-    }
-  }
-
-  /// Returns (and lazily creates) the artwork cache directory.
-  Future<Directory> _getArtworkCacheDir() async {
-    if (_artworkCacheDir != null) return _artworkCacheDir!;
-
-    final appSupportDir = await getApplicationSupportDirectory();
-    final dir = Directory(p.join(appSupportDir.path, 'artworks'));
-    final exists = await dir.exists();
-    if (!exists) {
-      await dir.create(recursive: true);
-    }
-
-    _artworkCacheDir = dir;
-    return dir;
   }
 
   // Utils

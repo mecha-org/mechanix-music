@@ -109,4 +109,113 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get errorPlaybackUnknown => 'Something went wrong';
+
+  @override
+  String get appTitle => 'Music';
+
+  @override
+  String get startPlaying => 'Start playing...';
+
+  @override
+  String get artist => 'Artist';
+
+  @override
+  String get playingNext => 'Playing next';
+
+  @override
+  String get allTracks => 'All Tracks';
+
+  @override
+  String get playlist => 'Playlist';
+
+  @override
+  String get playNext => 'Play next';
+
+  @override
+  String get addToPlaylist => 'Add to playlist';
+
+  @override
+  String get addToFavourite => 'Add to favourite';
+
+  @override
+  String get removeFromFavourite => 'Remove from favourite';
+
+  @override
+  String get share => 'Share';
+
+  @override
+  String get setSleepTimer => 'Set sleep timer';
+
+  @override
+  String get cancel => 'Cancel';
+
+  @override
+  String get save => 'Save';
+
+  @override
+  String get newPlaylist => 'New playlist';
+
+  @override
+  String get playlistName => 'Playlist name';
+
+  @override
+  String get noPlaylists => 'No playlists yet';
+
+  @override
+  String get endOfTrack => 'End of track';
+
+  @override
+  String get filePathCopied => 'File path copied';
+
+  @override
+  String get playlistsUpdated => 'Playlists updated';
+
+  @override
+  String get sleepTimerOff => 'Sleep timer off';
+
+  @override
+  String tracksCount(String count) {
+    return '$count tracks';
+  }
+
+  @override
+  String minutesCount(int count) {
+    return '$count minutes';
+  }
+
+  @override
+  String playingNextSong(String title) {
+    return 'Playing next: $title';
+  }
+
+  @override
+  String sleepTimerSet(String option) {
+    return 'Sleep timer: $option';
+  }
+
+  @override
+  String get playlists => 'Playlists';
+
+  @override
+  String get createPlaylist => 'Create playlist';
+
+  @override
+  String get renamePlaylist => 'Rename playlist';
+
+  @override
+  String get remove => 'Remove';
+
+  @override
+  String addTracksTo(String name) {
+    return 'Add tracks to $name';
+  }
+
+  @override
+  String get searchHint => 'Search tracks, artists or playlist';
+
+  @override
+  String get noTracksFound => 'No Tracks Available';
+
+  @override
+  String get recent => 'Recent';
 }

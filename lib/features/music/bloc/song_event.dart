@@ -43,3 +43,12 @@ final class SongAddByPaths extends SongEvent {
 final class SongSyncCompleted extends SongEvent {
   const SongSyncCompleted();
 }
+
+/// Adds [song] to, or removes it from, the favourites.
+final class SongToggleFavourite extends SongEvent {
+  final SongModel song;
+  const SongToggleFavourite(this.song);
+
+  @override
+  List<Object?> get props => [song];
+}
