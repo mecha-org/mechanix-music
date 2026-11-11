@@ -27,4 +27,16 @@ abstract class PlaylistRepository {
 
   /// Replaces the songs of the playlist with [id] (in play order).
   Future<void> setPlaylistSongs(String id, List<String> songPaths);
+
+  /// Removes [paths] from every playlist and the favourites (their files
+  /// are gone).
+  Future<void> removeSongs(Iterable<String> paths);
+
+  /// Points the playlists at a song's new path after it was moved.
+  Future<void> moveSong(String from, String to);
+
+  /// Removes songs whose file no longer exists from every playlist and the
+  /// favourites, e.g. files deleted while the app was closed. Returns how
+  /// many entries were removed.
+  Future<int> removeMissingSongs();
 }

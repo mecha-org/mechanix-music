@@ -133,5 +133,10 @@
 
   "searchHint": "Search tracks, artists or playlist",
   "noTracksFound": "No Tracks Available",
-  "recent": "Recent"
+  "recent": "Recent",
+
+  "audioOutputDevice": "Audio output device",
+  "thisDeviceOutput": "Comet",
+  "noAudioOutputs": "No audio output devices found",
+  "audioOutputFailed": "Could not switch the audio output"
 }

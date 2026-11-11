@@ -68,7 +68,8 @@ class _PositionedProgressState extends State<_PositionedProgress> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final timeStyle = theme.textTheme.labelLarge?.copyWith(
-      color: colorScheme.onSurfaceVariant,
+      color: colorScheme.onSecondaryFixed,
+      fontSize: 16,
     );
     final canSeek = widget.hasSong && widget.duration > Duration.zero;
 
@@ -169,7 +170,13 @@ class _ProgressPainter extends CustomPainter {
 
     if (elapsedEnd > 0) {
       canvas.drawRRect(
-        RRect.fromLTRBR(0, y - _height / 2, elapsedEnd, y + _height / 2, radius),
+        RRect.fromLTRBR(
+          0,
+          y - _height / 2,
+          elapsedEnd,
+          y + _height / 2,
+          radius,
+        ),
         Paint()..color = activeColor,
       );
     }

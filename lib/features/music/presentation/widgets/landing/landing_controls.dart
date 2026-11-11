@@ -20,6 +20,21 @@ class LandingControls extends StatelessWidget {
         final colorScheme = Theme.of(context).colorScheme;
         final hasSong = data.hasSong;
 
+        // Colours from the design. Active (something to play): white icons,
+        // dark filled previous/next with a grey border and an orange play
+        // button. Inactive (empty state or nothing to go to): grey icons,
+        // transparent previous/next and a dark grey play button.
+        final activeIcon = colorScheme.onSurface;
+        final inactiveIcon = colorScheme.onSurfaceVariant;
+        final selectedIcon = colorScheme.primary;
+
+        // The button draws a disabled border at 38% opacity, so a lighter
+        // colour is passed then; it ends up as the design's outline grey.
+        Color border(bool enabled) =>
+            enabled ? colorScheme.outline : colorScheme.onSecondaryFixed;
+        final canPrevious = hasSong && data.hasPrevious;
+        final canNext = hasSong && data.hasNext;
+
         return FittedBox(
           fit: BoxFit.scaleDown,
           alignment: Alignment.centerLeft,
@@ -32,6 +47,12 @@ class LandingControls extends StatelessWidget {
                 type: IconButtonType.rounded,
                 size: IconButtonSize.small,
                 isSelected: data.repeatMode != RepeatMode.off,
+                backgroundColor: Colors.transparent,
+                foregroundColor: activeIcon,
+                disabledColor: Colors.transparent,
+                disabledForegroundColor: inactiveIcon,
+                selectedBackgroundColor: Colors.transparent,
+                selectedForegroundColor: selectedIcon,
                 icon: Badge(
                   isLabelVisible: data.repeatMode == RepeatMode.one,
                   backgroundColor: colorScheme.primary,
@@ -47,8 +68,14 @@ class LandingControls extends StatelessWidget {
                 key: const ValueKey('landing_previous_button'),
                 type: IconButtonType.rounded,
                 size: IconButtonSize.medium,
+                backgroundColor: colorScheme.surfaceContainerLow,
+                foregroundColor: activeIcon,
+                borderColor: border(canPrevious),
+                borderWidth: 1,
+                disabledColor: Colors.transparent,
+                disabledForegroundColor: inactiveIcon,
                 icon: const ImageIcon(AssetImage(MusicIcons.previousIcon)),
-                onPressed: hasSong && data.hasPrevious
+                onPressed: canPrevious
                     ? () => bloc.add(const PlaybackPlayPrevious())
                     : null,
               ),
@@ -56,6 +83,14 @@ class LandingControls extends StatelessWidget {
                 key: const ValueKey('landing_play_button'),
                 type: IconButtonType.rounded,
                 size: IconButtonSize.large,
+                // Empty state ("Start playing…"): looks inactive as in the
+                // design, but a tap still starts the Playing next queue.
+                backgroundColor: hasSong
+                    ? colorScheme.primary
+                    : colorScheme.surfaceContainer,
+                foregroundColor: hasSong ? activeIcon : inactiveIcon,
+                disabledColor: colorScheme.surfaceContainer,
+                disabledForegroundColor: inactiveIcon,
                 icon: ImageIcon(
                   AssetImage(
                     data.isPlaying
@@ -69,8 +104,14 @@ class LandingControls extends StatelessWidget {
                 key: const ValueKey('landing_next_button'),
                 type: IconButtonType.rounded,
                 size: IconButtonSize.medium,
+                backgroundColor: colorScheme.surfaceContainerLow,
+                foregroundColor: activeIcon,
+                borderColor: border(canNext),
+                borderWidth: 1,
+                disabledColor: Colors.transparent,
+                disabledForegroundColor: inactiveIcon,
                 icon: const ImageIcon(AssetImage(MusicIcons.nextIcon)),
-                onPressed: hasSong && data.hasNext
+                onPressed: canNext
                     ? () => bloc.add(const PlaybackPlayNext())
                     : null,
               ),
@@ -79,6 +120,12 @@ class LandingControls extends StatelessWidget {
                 type: IconButtonType.rounded,
                 size: IconButtonSize.small,
                 isSelected: data.isShuffled,
+                backgroundColor: Colors.transparent,
+                foregroundColor: activeIcon,
+                disabledColor: Colors.transparent,
+                disabledForegroundColor: inactiveIcon,
+                selectedBackgroundColor: Colors.transparent,
+                selectedForegroundColor: selectedIcon,
                 icon: const ImageIcon(AssetImage(MusicIcons.shuffleIcon)),
                 onPressed: hasSong
                     ? () => bloc.add(const PlaybackToggleShuffle())

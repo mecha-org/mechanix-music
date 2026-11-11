@@ -106,6 +106,32 @@ class PlaybackState extends Equatable {
     return [...playNextQueue, ...rest];
   }
 
+  /// The whole queue for "Playing next", so nothing disappears as songs
+  /// play: the songs already played from the play order, the current song,
+  /// the "play next" queue, then the rest of the order.
+  ({List<SongModel> songs, int currentIndex}) get queue {
+    final order = playOrder;
+    final current = song;
+    if (current == null) {
+      return (songs: [...playNextQueue, ...order], currentIndex: -1);
+    }
+    final index = orderIndex;
+    if (index < 0 || index >= order.length) {
+      // The current song is not in the order (e.g. a folder song).
+      return (
+        songs: [current, ...playNextQueue, ...order],
+        currentIndex: 0,
+      );
+    }
+    // While a "play next" song plays, the order's song at [index] (the
+    // anchor) was already played.
+    final played = order.sublist(0, anchorPath != null ? index + 1 : index);
+    return (
+      songs: [...played, current, ...playNextQueue, ...order.sublist(index + 1)],
+      currentIndex: played.length,
+    );
+  }
+
   PlaybackState copyWith({
     PlaybackStatus? status,
     SongModel? song,

@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:mechanix_music/core/utils/icons.dart';
@@ -8,8 +10,8 @@ import 'package:mechanix_music/features/music/data/repository/playlist_repositor
 import 'package:mechanix_music/l10n/music_localizations.dart';
 import 'package:widgets/widgets.dart';
 
-/// Opens the "Add to playlist" sheet for [song]. The song ends up in exactly
-/// the playlists that are checked when the user taps Save.
+/// Opens the "Add to playlist" sheet for [song]. All boxes start unticked;
+/// Save adds the song to the ticked playlists (it is never removed here).
 Future<void> showAddToPlaylistSheet(
   BuildContext context,
   SongModel song,
@@ -22,6 +24,7 @@ Future<void> showAddToPlaylistSheet(
   await MechanixBottomSheet.showModal<bool>(
     context: context,
     showDragHandle: true,
+    backgroundColor: Theme.of(context).colorScheme.surfaceContainerLow,
     builder: (_) => AddToPlaylistSheet(song: song, repository: repository),
   );
 
@@ -47,7 +50,7 @@ class AddToPlaylistSheet extends StatefulWidget {
 
 class _AddToPlaylistSheetState extends State<AddToPlaylistSheet> {
   List<PlaylistModel>? _playlists;
-  Set<String> _selected = {};
+  final Set<String> _selected = {};
   bool _creating = false;
   bool _saving = false;
   final _nameController = TextEditingController();
@@ -71,13 +74,8 @@ class _AddToPlaylistSheetState extends State<AddToPlaylistSheet> {
         if (!playlist.isFixed) playlist,
     ];
     if (!mounted) return;
-    setState(() {
-      _playlists = playlists;
-      _selected = {
-        for (final playlist in playlists)
-          if (playlist.songPaths.contains(widget.song.path)) playlist.id,
-      };
-    });
+    // Every box starts unticked: ticking a playlist adds the song to it.
+    setState(() => _playlists = playlists);
   }
 
   void _toggle(PlaylistModel playlist) {
@@ -106,7 +104,14 @@ class _AddToPlaylistSheetState extends State<AddToPlaylistSheet> {
 
   Future<void> _save() async {
     setState(() => _saving = true);
-    await widget.repository.setSongPlaylists(widget.song.path, _selected);
+    // Only adds: the song stays in the playlists it is already in (their
+    // boxes start unticked, so they are not a request to remove it).
+    final path = widget.song.path;
+    await widget.repository.setSongPlaylists(path, {
+      ..._selected,
+      for (final playlist in _playlists ?? const <PlaylistModel>[])
+        if (playlist.songPaths.contains(path)) playlist.id,
+    });
     if (!mounted) return;
     // Shown from the sheet: it goes to the root overlay, so it stays after
     // the sheet closes.
@@ -129,8 +134,9 @@ class _AddToPlaylistSheetState extends State<AddToPlaylistSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // Spacing measured from the design.
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+            padding: const EdgeInsets.fromLTRB(22, 40, 20, 18),
             child: Text(
               l10n.addToPlaylist,
               style: theme.textTheme.headlineSmall?.copyWith(
@@ -139,81 +145,109 @@ class _AddToPlaylistSheetState extends State<AddToPlaylistSheet> {
             ),
           ),
           Flexible(
-            child: playlists == null
-                ? const Padding(
-                    padding: EdgeInsets.all(24),
-                    child: Center(child: CircularProgressIndicator()),
-                  )
-                : ListView(
-                    shrinkWrap: true,
-                    children: [
-                      if (playlists.isEmpty && !_creating)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 8,
-                          ),
-                          child: Text(
-                            l10n.noPlaylists,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
+            // Lets the list be dragged with the mouse too (a mouse wheel
+            // already scrolls it); it scrolls once it is taller than the
+            // space the sheet has.
+            child: ScrollConfiguration(
+              behavior: ScrollConfiguration.of(context).copyWith(
+                dragDevices: {PointerDeviceKind.touch, PointerDeviceKind.mouse},
+              ),
+              child: playlists == null
+                  ? const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  : ListView(
+                      shrinkWrap: true,
+                      children: [
+                        if (playlists.isEmpty && !_creating)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 8,
+                            ),
+                            child: Text(
+                              l10n.noPlaylists,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
                             ),
                           ),
-                        ),
-                      for (final playlist in playlists)
-                        _PlaylistRow(
-                          playlist: playlist,
-                          selected: _selected.contains(playlist.id),
-                          onToggle: () => _toggle(playlist),
-                        ),
-                      if (_creating)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 8,
+                        for (final playlist in playlists)
+                          _PlaylistRow(
+                            playlist: playlist,
+                            selected: _selected.contains(playlist.id),
+                            onToggle: () => _toggle(playlist),
                           ),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: MechanixTextField.outlined(
-                                  key: const ValueKey('new_playlist_field'),
-                                  controller: _nameController,
-                                  autofocus: true,
-                                  hintText: l10n.playlistName,
-                                  textInputAction: TextInputAction.done,
-                                  onSubmitted: (_) => _createPlaylist(),
+                        if (_creating)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 8,
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: MechanixTextField.outlined(
+                                    key: const ValueKey('new_playlist_field'),
+                                    controller: _nameController,
+                                    autofocus: true,
+                                    hintText: l10n.playlistName,
+                                    textInputAction: TextInputAction.done,
+                                    onSubmitted: (_) => _createPlaylist(),
+                                  ),
                                 ),
+                                const SizedBox(width: 8),
+                                MechanixIconButton.standard(
+                                  key: const ValueKey('new_playlist_confirm'),
+                                  type: IconButtonType.rounded,
+                                  icon: const Icon(Icons.check),
+                                  onPressed: _createPlaylist,
+                                ),
+                              ],
+                            ),
+                          )
+                        else
+                          // Not in the design; kept so a playlist can still
+                          // be created from here. Laid out like the rows.
+                          InkWell(
+                            key: const ValueKey('new_playlist_tile'),
+                            onTap: () => setState(() => _creating = true),
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(
+                                21,
+                                21,
+                                26,
+                                21,
                               ),
-                              const SizedBox(width: 8),
-                              MechanixIconButton.standard(
-                                key: const ValueKey('new_playlist_confirm'),
-                                type: IconButtonType.rounded,
-                                icon: const Icon(Icons.check),
-                                onPressed: _createPlaylist,
+                              child: Row(
+                                children: [
+                                  SizedBox.square(
+                                    dimension: 54,
+                                    child: Icon(
+                                      Icons.add,
+                                      color: theme.colorScheme.onSurface,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 14),
+                                  Text(
+                                    l10n.newPlaylist,
+                                    style: theme.textTheme.titleLarge?.copyWith(
+                                      color: theme.colorScheme.onSurface,
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ],
+                            ),
                           ),
-                        )
-                      else
-                        MechanixListTile(
-                          key: const ValueKey('new_playlist_tile'),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 8,
-                          ),
-                          leadingWidgets: [
-                            Icon(Icons.add, color: theme.colorScheme.onSurface),
-                          ],
-                          labelText: l10n.newPlaylist,
-                          onTap: () => setState(() => _creating = true),
-                        ),
-                    ],
-                  ),
+                      ],
+                    ),
+            ),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 36),
             child: Row(
-              spacing: 12,
+              spacing: 13,
               children: [
                 Expanded(
                   child: MechanixButton.outline(
@@ -261,6 +295,8 @@ class _AddToPlaylistSheetState extends State<AddToPlaylistSheet> {
   }
 }
 
+/// A playlist in the sheet, as in the design: 54 px cover, name and
+/// track count, and a checkbox on the right. 96 px tall.
 class _PlaylistRow extends StatelessWidget {
   const _PlaylistRow({
     required this.playlist,
@@ -275,33 +311,54 @@ class _PlaylistRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final colorScheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
 
-    return MechanixListTile(
+    return InkWell(
       key: ValueKey('playlist_row_${playlist.id}'),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      leadingWidgets: [
-        Container(
-          width: 40,
-          height: 40,
-          color: colorScheme.onSurface.withValues(alpha: 0.9),
-          child: Center(
-            child: ImageIcon(
-              const AssetImage(MusicIcons.musicIcon),
-              size: 18,
-              color: colorScheme.surfaceContainerHighest,
-            ),
-          ),
-        ),
-      ],
-      labelText: playlist.name,
-      supportingText: l10n.tracksCount(
-        playlist.trackCount.toString().padLeft(2, '0'),
-      ),
-      trailingWidgets: [
-        MechanixCheckbox(value: selected, onChanged: (_) => onToggle()),
-      ],
       onTap: onToggle,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(21, 21, 26, 21),
+        child: Row(
+          children: [
+            Image.asset(
+              MusicIcons.musicIcon,
+              width: 54,
+              height: 54,
+              fit: BoxFit.cover,
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                spacing: 6,
+                children: [
+                  Text(
+                    playlist.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      color: colorScheme.onSurface,
+                    ),
+                  ),
+                  Text(
+                    l10n.tracksCount(
+                      playlist.trackCount.toString().padLeft(2, '0'),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: colorScheme.onSecondaryContainer,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            MechanixCheckbox(value: selected, onChanged: (_) => onToggle()),
+          ],
+        ),
+      ),
     );
   }
 }

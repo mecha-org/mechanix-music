@@ -8,6 +8,13 @@ abstract class SongRepository {
   Future<List<SongModel>> getSongs({required int offset, required int limit});
   Future<int> getSongCount();
   Stream<SongChange> get onSongChanged;
+
+  /// Paths of songs that left the library because their file is gone
+  /// (deleted from the music folder, or found missing on start or play).
+  Stream<List<String>> get onSongsRemoved;
+
+  /// A song's file was renamed or moved within the music folder.
+  Stream<({String from, String to})> get onSongMoved;
   Future<void> addSongsByPaths(List<String> paths);
   Future<void> deleteSongByPath(String path);
 

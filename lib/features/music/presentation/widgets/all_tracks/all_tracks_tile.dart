@@ -39,6 +39,7 @@ class AllTracksTile extends StatelessWidget {
           extentRatio: 0.16,
           swipedBackgroundColor: theme.colorScheme.outlineVariant,
           theme: ListTileThemeDataConfig(
+            selectedColor: theme.colorScheme.surfaceContainerLow,
             supportingTextStyle: theme.textTheme.titleMedium?.copyWith(
               color: theme.colorScheme.onSecondaryFixedVariant,
             ),

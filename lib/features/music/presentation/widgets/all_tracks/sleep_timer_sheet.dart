@@ -24,10 +24,8 @@ Future<void> showSleepTimerSheet(BuildContext context) async {
   final picked = await MechanixBottomSheet.showModal<_SleepTimerChoice>(
     context: context,
     showDragHandle: true,
-    builder: (_) => BlocProvider.value(
-      value: bloc,
-      child: const SleepTimerSheet(),
-    ),
+    builder: (_) =>
+        BlocProvider.value(value: bloc, child: const SleepTimerSheet()),
   );
   // Set the timer even if [context] is gone by now.
   if (picked == null || bloc.isClosed) return;
@@ -71,10 +69,10 @@ class SleepTimerSheet extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+                padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
                 child: Text(
                   l10n.setSleepTimer,
-                  style: theme.textTheme.titleLarge?.copyWith(
+                  style: theme.textTheme.headlineSmall?.copyWith(
                     color: theme.colorScheme.onSurface,
                   ),
                 ),
@@ -94,7 +92,14 @@ class SleepTimerSheet extends StatelessWidget {
                       onChanged: (_) => pick(option),
                     ),
                   ],
-                  labelText: sleepTimerLabel(l10n, option),
+                  label: Text(
+                    sleepTimerLabel(l10n, option),
+                    style: theme.textTheme.titleLarge!.copyWith(
+                      color: active == option
+                          ? theme.colorScheme.onSurfaceVariant
+                          : theme.colorScheme.onSurface,
+                    ),
+                  ),
                   onTap: () => pick(option),
                 ),
               const SizedBox(height: 16),

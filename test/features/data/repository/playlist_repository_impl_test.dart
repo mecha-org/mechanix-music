@@ -52,6 +52,7 @@ void main() {
       playlistsDirectoryProvider: () => dir.path,
       songRepository: songs,
       favouritesStore: favourites,
+      followLibrary: false,
     );
   });
 
@@ -247,6 +248,7 @@ void main() {
       playlistsDirectoryProvider: () => dir.path,
       songRepository: songs,
       favouritesStore: store,
+      followLibrary: false,
     );
     await store.setEntries(const [M3u8Entry(path: '/a.mp3')]);
     final mix = await repo.createPlaylist('favourites');
@@ -255,5 +257,49 @@ void main() {
     expect(playlists.map((p) => p.id), [PlaylistModel.favouritesId, mix.id]);
     expect(playlists.first.songPaths, ['/a.mp3']);
     expect(mix.id, 'favourites (2)');
+  });
+
+  group('library changes', () {
+    test('removeSongs drops the songs from playlists and favourites',
+        () async {
+      final a = await repository.createPlaylist('A');
+      await repository.setPlaylistSongs(a.id, ['/x.mp3', '/gone.mp3']);
+      await favourites.setEntries(const [
+        M3u8Entry(path: '/gone.mp3'),
+        M3u8Entry(path: '/y.mp3'),
+      ]);
+      final fired = expectLater(repository.onChanged, emits(anything));
+
+      await repository.removeSongs(['/gone.mp3']);
+
+      expect((await userPlaylists()).single.songPaths, ['/x.mp3']);
+      expect(await favourites.paths(), ['/y.mp3']);
+      await fired;
+    });
+
+    test('removeMissingSongs keeps only songs whose file exists', () async {
+      final real = File('${dir.path}/real.mp3')..writeAsStringSync('x');
+      final a = await repository.createPlaylist('A');
+      await repository.setPlaylistSongs(a.id, [real.path, '/no/such.mp3']);
+      await favourites.setEntries([
+        const M3u8Entry(path: '/no/such.mp3'),
+        M3u8Entry(path: real.path),
+      ]);
+
+      expect(await repository.removeMissingSongs(), 2);
+
+      expect((await userPlaylists()).single.songPaths, [real.path]);
+      expect(await favourites.paths(), [real.path]);
+      expect(await repository.removeMissingSongs(), 0);
+    });
+
+    test('moveSong updates the path in user playlists', () async {
+      final a = await repository.createPlaylist('A');
+      await repository.setPlaylistSongs(a.id, ['/1.mp3', '/old.mp3']);
+
+      await repository.moveSong('/old.mp3', '/new.mp3');
+
+      expect((await userPlaylists()).single.songPaths, ['/1.mp3', '/new.mp3']);
+    });
   });
 }

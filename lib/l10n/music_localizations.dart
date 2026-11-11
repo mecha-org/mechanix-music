@@ -483,6 +483,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Recent'**
   String get recent;
+
+  /// No description provided for @audioOutputDevice.
+  ///
+  /// In en, this message translates to:
+  /// **'Audio output device'**
+  String get audioOutputDevice;
+
+  /// No description provided for @thisDeviceOutput.
+  ///
+  /// In en, this message translates to:
+  /// **'Comet'**
+  String get thisDeviceOutput;
+
+  /// No description provided for @noAudioOutputs.
+  ///
+  /// In en, this message translates to:
+  /// **'No audio output devices found'**
+  String get noAudioOutputs;
+
+  /// No description provided for @audioOutputFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not switch the audio output'**
+  String get audioOutputFailed;
 }
 
 class _AppLocalizationsDelegate

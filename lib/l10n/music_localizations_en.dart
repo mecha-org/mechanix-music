@@ -218,4 +218,16 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get recent => 'Recent';
+
+  @override
+  String get audioOutputDevice => 'Audio output device';
+
+  @override
+  String get thisDeviceOutput => 'Comet';
+
+  @override
+  String get noAudioOutputs => 'No audio output devices found';
+
+  @override
+  String get audioOutputFailed => 'Could not switch the audio output';
 }

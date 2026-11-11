@@ -47,6 +47,8 @@ class PlaylistTrackTile extends StatelessWidget {
           extentRatio: 0.16,
           swipedBackgroundColor: theme.colorScheme.outlineVariant,
           theme: ListTileThemeDataConfig(
+            // The playing song's row, as in the design (not orange-tinted).
+            selectedColor: theme.colorScheme.surfaceContainerLow,
             supportingTextStyle: theme.textTheme.titleMedium?.copyWith(
               color: theme.colorScheme.onSecondaryFixedVariant,
             ),

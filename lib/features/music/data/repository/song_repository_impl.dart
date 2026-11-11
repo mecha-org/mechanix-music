@@ -61,6 +61,18 @@ class SongRepositoryImpl extends SongRepository {
   @override
   Stream<SongChange> get onSongChanged => _onSongChanged.stream;
 
+  final StreamController<List<String>> _onSongsRemoved =
+      StreamController<List<String>>.broadcast();
+
+  @override
+  Stream<List<String>> get onSongsRemoved => _onSongsRemoved.stream;
+
+  final StreamController<({String from, String to})> _onSongMoved =
+      StreamController<({String from, String to})>.broadcast();
+
+  @override
+  Stream<({String from, String to})> get onSongMoved => _onSongMoved.stream;
+
   /// Opens the index and loads the favourites (once).
   Future<void> ensureOpen() async {
     final opening = _opening ??= _open();
@@ -110,9 +122,9 @@ class SongRepositoryImpl extends SongRepository {
     final previous = _favouritePaths;
     if (previous == null) return; // not loaded yet: read when opening
     final current = (await _favourites.paths()).toSet();
-    final changed = previous.difference(current).union(
-      current.difference(previous),
-    );
+    final changed = previous
+        .difference(current)
+        .union(current.difference(previous));
     _favouritePaths = current;
     if (changed.isEmpty || _onSongChanged.isClosed) return;
 
@@ -140,6 +152,8 @@ class SongRepositoryImpl extends SongRepository {
     _debounceTimers.clear();
 
     await _onSongChanged.close();
+    await _onSongsRemoved.close();
+    await _onSongMoved.close();
     await _index.close();
     _opening = null;
     _favouritePaths = null;
@@ -214,6 +228,9 @@ class SongRepositoryImpl extends SongRepository {
       // 4. Save.
       await _index.delete(toRemove);
       await _index.upsert(updated);
+      if (toRemove.isNotEmpty && !_onSongsRemoved.isClosed) {
+        _onSongsRemoved.add(toRemove);
+      }
 
       AppLogger.i(
         '[SongRepository] Sync completed for $musicDir: '
@@ -317,6 +334,7 @@ class SongRepositoryImpl extends SongRepository {
 
     await _index.delete([path]);
     AppLogger.i('[SongRepository] Deleted song by path: $path');
+    if (!_onSongsRemoved.isClosed) _onSongsRemoved.add([path]);
     _onSongChanged.add(
       SongChange(type: SongChangeType.delete, song: _decorate(existing.first)),
     );
@@ -477,6 +495,9 @@ class SongRepositoryImpl extends SongRepository {
       }
 
       AppLogger.i('[FileWatcher] Moved: $oldPath → $newPath');
+      if (!_onSongMoved.isClosed) {
+        _onSongMoved.add((from: oldPath, to: newPath));
+      }
       _onSongChanged.add(
         SongChange(type: SongChangeType.delete, song: existing),
       );

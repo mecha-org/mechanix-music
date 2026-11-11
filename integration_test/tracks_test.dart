@@ -49,7 +49,10 @@ void main() {
         () => find.byType(MusicMiniPlayer).evaluate().isNotEmpty,
         reason: 'mini player after tapping a track',
       );
-      expect(find.byType(MusicScreen), findsNothing);
+      // Still on the All tracks tab of the same screen: nothing was pushed.
+      // (All tracks is a tab of MusicScreen, so MusicScreen is always there.)
+      expect(find.byType(MusicScreen), findsOneWidget);
+      expect(find.text('All Tracks'), findsOneWidget);
 
       // ── Swipe → menu with all actions ─────────────────────────────────────
       await openTrackMenu(tester, firstTrack);
@@ -90,13 +93,15 @@ void main() {
       expect(find.byType(AddToPlaylistSheet), findsNothing);
 
       // ── Mini player opens the full player ────────────────────────────────
+      // It pushes a MusicScreen on the player tab, titled "MUSIC".
       await tester.tap(find.byType(MusicMiniPlayer));
       await TestHelper.pumpUntil(
         tester,
-        () => find.byType(MusicScreen).evaluate().isNotEmpty,
+        () => find.text('MUSIC').evaluate().isNotEmpty,
         reason: 'player screen from the mini player',
       );
       await tester.pump(const Duration(milliseconds: 600));
+      expect(find.text('All Tracks'), findsNothing);
 
       // ── Pause before leaving — stops position updates ─────────────────────
       // final pauseBtn = TestHelper.findMusicButton('assets/icons/pause.png');

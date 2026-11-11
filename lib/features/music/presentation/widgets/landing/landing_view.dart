@@ -21,7 +21,9 @@ class NowPlayingLanding extends StatelessWidget {
   static const double vinylSize = 240;
 
   /// How much of the vinyl is visible; the rest is cut off on the left.
-  static const double vinylVisibleWidth = 126;
+  /// As in the design, the vinyl's centre (the spindle hole) sits exactly on
+  /// the screen's left edge, so half of it shows.
+  static const double vinylVisibleWidth = vinylSize / 2;
 
   @override
   Widget build(BuildContext context) {
@@ -29,34 +31,34 @@ class NowPlayingLanding extends StatelessWidget {
       behavior: ScrollConfiguration.of(context).copyWith(
         dragDevices: {PointerDeviceKind.touch, PointerDeviceKind.mouse},
       ),
-      child: SingleChildScrollView(
+      child: const SingleChildScrollView(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const SizedBox(height: 16),
+            SizedBox(height: 16),
             SizedBox(
               height: vinylSize,
               child: Stack(
                 clipBehavior: Clip.hardEdge,
                 children: [
-                  const Positioned(
+                  Positioned(
                     left: vinylVisibleWidth - vinylSize,
                     top: 0,
                     child: LandingVinyl(size: vinylSize),
                   ),
                   Positioned.fill(
-                    left: vinylVisibleWidth + 20,
+                    left: vinylVisibleWidth + 26,
                     right: 20,
-                    child: const _NowPlayingDetails(),
+                    child: _NowPlayingDetails(),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 20),
-            const MechanixDivider(),
-            const SizedBox(height: 16),
-            const PlayingNext(),
-            const SizedBox(height: 16),
+            SizedBox(height: 20),
+            MechanixDivider(),
+            SizedBox(height: 16),
+            PlayingNext(),
+            SizedBox(height: 16),
           ],
         ),
       ),
@@ -96,7 +98,8 @@ class _SongTitle extends StatelessWidget {
       PlaybackState,
       ({String? title, String? artist})
     >(
-      selector: (state) => (title: state.song?.title, artist: state.song?.artist),
+      selector: (state) =>
+          (title: state.song?.title, artist: state.song?.artist),
       builder: (context, song) {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -117,8 +120,8 @@ class _SongTitle extends StatelessWidget {
               key: const ValueKey('landing_song_artist'),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
+              style: theme.textTheme.titleSmall?.copyWith(
+                color: theme.colorScheme.onSecondaryFixed,
               ),
             ),
           ],

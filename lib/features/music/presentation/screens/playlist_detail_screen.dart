@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:mechanix_music/core/utils/app_logger.dart';
 import 'package:mechanix_music/core/utils/icons.dart';
 import 'package:mechanix_music/features/music/bloc/player/player_bloc.dart';
 import 'package:mechanix_music/features/music/bloc/player/player_state.dart';
@@ -105,7 +106,14 @@ class _PlaylistBodyState extends State<_PlaylistBody> {
         .where((p) => !_songsByPath.containsKey(p))
         .toList();
     if (missing.isEmpty) return;
-    final songs = await context.read<SongRepository>().getSongsByPaths(missing);
+    final List<SongModel> songs;
+    try {
+      songs = await context.read<SongRepository>().getSongsByPaths(missing);
+    } catch (e) {
+      // The library could not be opened; the rows stay empty.
+      AppLogger.e('[PlaylistDetail] Loading songs failed: $e');
+      return;
+    }
     if (!mounted) return;
     setState(() {
       for (final song in songs) {

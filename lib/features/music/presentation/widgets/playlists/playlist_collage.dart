@@ -1,6 +1,8 @@
 import 'package:mechanix_music/core/utils/artwork.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:mechanix_music/core/utils/app_logger.dart';
+import 'package:mechanix_music/features/music/data/models/song_model.dart';
 import 'package:mechanix_music/features/music/data/repository/song_repository.dart';
 
 /// Playlist cover: one vinyl for an empty playlist, otherwise a 2×2 grid of
@@ -49,7 +51,15 @@ class _PlaylistCollageState extends State<PlaylistCollage> {
       _artworks = const [];
       return;
     }
-    final songs = await context.read<SongRepository>().getSongsByPaths(paths);
+    final List<SongModel> songs;
+    try {
+      songs = await context.read<SongRepository>().getSongsByPaths(paths);
+    } catch (e) {
+      // The library could not be opened (e.g. another instance holds it):
+      // keep the placeholder labels instead of an unhandled error.
+      AppLogger.e('[PlaylistCollage] Loading artwork failed: $e');
+      return;
+    }
     if (!mounted || !_samePaths(paths, _loadedFor)) return;
     setState(() => _artworks = [for (final s in songs) s.artworkBase64]);
   }
@@ -63,12 +73,13 @@ class _PlaylistCollageState extends State<PlaylistCollage> {
       return MiniVinyl(diameter: size, labelColor: colorScheme.primary);
     }
 
-    // Placeholder labels alternate like the design when there's no artwork.
+    // Placeholder labels alternate like the design when there's no artwork:
+    // light grey and accent orange.
     final placeholders = [
-      colorScheme.onSurface,
+      colorScheme.onPrimaryFixed,
       colorScheme.primary,
       colorScheme.primary,
-      colorScheme.onSurface,
+      colorScheme.onPrimaryFixed,
     ];
     // The four vinyls touch, as in the design (128 px → four 64 px discs).
     const gap = 0.0;
@@ -111,14 +122,15 @@ class MiniVinyl extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     final labelSize = diameter * _labelRatio;
     final bytes = ArtworkCache.decode(artworkBase64);
     final hole = Container(
       width: diameter * 0.03,
       height: diameter * 0.03,
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: Colors.black,
+        color: colorScheme.surfaceContainerLowest,
       ),
     );
     final solidLabel = DecoratedBox(
@@ -129,7 +141,12 @@ class MiniVinyl extends StatelessWidget {
     return SizedBox.square(
       dimension: diameter,
       child: CustomPaint(
-        painter: const _GroovesPainter(labelRatio: _labelRatio),
+        painter: _GroovesPainter(
+          labelRatio: _labelRatio,
+          discColor: colorScheme.surfaceContainerLow,
+          grooveColor: colorScheme.surfaceContainerHigh,
+          rimColor: colorScheme.surfaceContainerLowest,
+        ),
         child: Center(
           child: SizedBox.square(
             dimension: labelSize,
@@ -166,25 +183,29 @@ class MiniVinyl extends StatelessWidget {
 /// The vinyl disc: a dark circle with fine concentric grooves between the
 /// label and the rim, as in the design.
 class _GroovesPainter extends CustomPainter {
-  const _GroovesPainter({required this.labelRatio});
+  const _GroovesPainter({
+    required this.labelRatio,
+    required this.discColor,
+    required this.grooveColor,
+    required this.rimColor,
+  });
 
   final double labelRatio;
-
-  static const _disc = Color(0xFF141414);
-  static const _groove = Color(0xFF222222);
-  static const _rim = Color(0xFF0C0C0C);
+  final Color discColor;
+  final Color grooveColor;
+  final Color rimColor;
 
   @override
   void paint(Canvas canvas, Size size) {
     final center = size.center(Offset.zero);
     final radius = size.shortestSide / 2;
 
-    canvas.drawCircle(center, radius, Paint()..color = _disc);
+    canvas.drawCircle(center, radius, Paint()..color = discColor);
 
     // About ten grooves on a 64 px disc, scaling with the disc.
     final spacing = size.shortestSide * 0.024;
     final groove = Paint()
-      ..color = _groove
+      ..color = grooveColor
       ..style = PaintingStyle.stroke
       ..strokeWidth = size.shortestSide * 0.008
       ..isAntiAlias = true;
@@ -197,7 +218,7 @@ class _GroovesPainter extends CustomPainter {
       center,
       radius - size.shortestSide * 0.006,
       Paint()
-        ..color = _rim
+        ..color = rimColor
         ..style = PaintingStyle.stroke
         ..strokeWidth = size.shortestSide * 0.012,
     );
@@ -205,5 +226,8 @@ class _GroovesPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_GroovesPainter oldDelegate) =>
-      oldDelegate.labelRatio != labelRatio;
+      oldDelegate.labelRatio != labelRatio ||
+      oldDelegate.discColor != discColor ||
+      oldDelegate.grooveColor != grooveColor ||
+      oldDelegate.rimColor != rimColor;
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:mechanix_music/core/services/m3u8_service.dart';
@@ -24,11 +25,29 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
     SongRepository? songRepository,
     FavouritesStore? favouritesStore,
     M3u8Service m3u8Service = const M3u8Service(),
+    bool followLibrary = true,
   }) : _directoryProvider =
            playlistsDirectoryProvider ?? _defaultPlaylistsDirectory,
        _songRepository = songRepository,
        _favourites = favouritesStore ?? FavouritesStore(),
-       _m3u8 = m3u8Service;
+       _m3u8 = m3u8Service {
+    // Favourites edited elsewhere (track menus) change the playlists too.
+    _favourites.changes.listen((_) => _notifyChanged());
+    if (followLibrary && songRepository != null) {
+      _followLibrary(songRepository);
+    }
+  }
+
+  /// Keeps playlists and favourites in step with the library: songs whose
+  /// file is deleted are removed and moved files keep their place. Entries
+  /// whose file was deleted while the app was closed are dropped now.
+  ///
+  /// Tests pass `followLibrary: false` to keep the playlists they set up.
+  void _followLibrary(SongRepository songs) {
+    songs.onSongsRemoved.listen(removeSongs);
+    songs.onSongMoved.listen((move) => moveSong(move.from, move.to));
+    unawaited(removeMissingSongs());
+  }
 
   final String Function() _directoryProvider;
 
@@ -48,7 +67,13 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
   }
 
   @override
-  Stream<void> get onChanged => _favourites.changes;
+  Stream<void> get onChanged => _changes.stream;
+
+  final StreamController<void> _changes = StreamController<void>.broadcast();
+
+  void _notifyChanged() {
+    if (!_changes.isClosed) _changes.add(null);
+  }
 
   Directory get _directory => Directory(_directoryProvider());
 
@@ -146,14 +171,14 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
 
   @override
   Future<List<PlaylistModel>> getPlaylists() async {
-    final playlists = <PlaylistModel>[
-      for (final file in await _m3u8.list(_directory))
-        if (!_isFavouritesFile(file))
-          if (await _readFile(file) case final playlist?) playlist,
-    ]..sort((a, b) {
-      final byAge = a.createdAt.compareTo(b.createdAt);
-      return byAge != 0 ? byAge : a.id.compareTo(b.id);
-    });
+    final playlists =
+        <PlaylistModel>[
+          for (final file in await _m3u8.list(_directory))
+            if (!_isFavouritesFile(file)) ?await _readFile(file),
+        ]..sort((a, b) {
+          final byAge = a.createdAt.compareTo(b.createdAt);
+          return byAge != 0 ? byAge : a.id.compareTo(b.id);
+        });
     return [await _readFavourites(), ...playlists];
   }
 
@@ -237,4 +262,84 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
           'playlist(s)',
         );
       });
+
+  @override
+  Future<void> removeSongs(Iterable<String> paths) async {
+    final deletedPaths = paths.toSet();
+    if (deletedPaths.isEmpty) return;
+    final removed = await _serialized(
+      () => _removeSongsFromAllPlaylists(
+        (path) async => deletedPaths.contains(path),
+      ),
+    );
+    if (removed > 0) {
+      AppLogger.i(
+        '[PlaylistRepository] Removed $removed deleted song(s) from playlists',
+      );
+    }
+  }
+
+  @override
+  Future<int> removeMissingSongs() async {
+    final removed = await _serialized(
+      () => _removeSongsFromAllPlaylists((path) async {
+        try {
+          return !await File(path).exists();
+        } catch (_) {
+          return false; // Unsure: keep the entry.
+        }
+      }),
+    );
+    if (removed > 0) {
+      AppLogger.i(
+        '[PlaylistRepository] Removed $removed missing song(s) from playlists',
+      );
+    }
+    return removed;
+  }
+
+  /// Removes every song for which [shouldRemove] is true from the user
+  /// playlists and the favourites (each path is checked once), and
+  /// announces the change. Returns how many entries were removed.
+  Future<int> _removeSongsFromAllPlaylists(
+    Future<bool> Function(String path) shouldRemove,
+  ) async {
+    final checked = <String, bool>{};
+    Future<bool> isRemoved(String path) async =>
+        checked[path] ??= await shouldRemove(path);
+
+    var removed = 0;
+    for (final playlist in await getPlaylists()) {
+      final kept = <String>[];
+      for (final path in playlist.songPaths) {
+        if (await isRemoved(path)) {
+          removed++;
+        } else {
+          kept.add(path);
+        }
+      }
+      if (kept.length == playlist.songPaths.length) continue;
+      playlist.songPaths = kept;
+      // For Favourites this writes the favourites file, which also updates
+      // the songs' favourite flag.
+      await _write(playlist);
+    }
+    if (removed > 0) _notifyChanged();
+    return removed;
+  }
+
+  @override
+  Future<void> moveSong(String from, String to) => _serialized(() async {
+    var changed = false;
+    for (final playlist in await getPlaylists()) {
+      // The song repository moves the favourite itself.
+      if (playlist.isFixed || !playlist.songPaths.contains(from)) continue;
+      playlist.songPaths = [
+        for (final path in playlist.songPaths) path == from ? to : path,
+      ];
+      await _write(playlist);
+      changed = true;
+    }
+    if (changed) _notifyChanged();
+  });
 }

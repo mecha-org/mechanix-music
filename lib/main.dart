@@ -11,6 +11,7 @@ import 'package:mechanix_music/features/music/data/repository/playlist_repositor
 import 'package:mechanix_music/features/music/data/repository/playlist_repository_impl.dart';
 import 'package:mechanix_music/features/music/data/repository/playback_repository.dart';
 import 'package:mechanix_music/features/music/data/repository/playback_repository_impl.dart';
+import 'package:mechanix_music/features/music/data/services/audio_output_service.dart';
 import 'package:mechanix_music/features/music/data/services/favourites_store.dart';
 import 'package:mechanix_music/features/music/data/repository/recent_search_repository.dart';
 import 'package:mechanix_music/features/music/data/repository/recent_search_repository_impl.dart';
@@ -21,27 +22,30 @@ void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
   // The library lives in a Tantivy index; playlists and favourites are
-  // .m3u8 files. Playlists read song info from the library for #EXTINF.
+  // .m3u8 files. Playlists read song info from the library for #EXTINF and
+  // follow its changes (deleted and moved songs).
   // One favourites store: the song repository (favourite flag) and the
-  // playlist repository (the fixed Favourites playlist) share it.
+  // playlist repository share it.
   final favouritesStore = FavouritesStore();
   final songRepository = SongRepositoryImpl(favouritesStore: favouritesStore);
+  final playlistRepository = PlaylistRepositoryImpl(
+    songRepository: songRepository,
+    favouritesStore: favouritesStore,
+  );
 
   runApp(
     MultiRepositoryProvider(
       providers: [
         RepositoryProvider<SongRepository>.value(value: songRepository),
-        RepositoryProvider<PlaylistRepository>(
-          create: (_) => PlaylistRepositoryImpl(
-            songRepository: songRepository,
-            favouritesStore: favouritesStore,
-          ),
-        ),
+        RepositoryProvider<PlaylistRepository>.value(value: playlistRepository),
         RepositoryProvider<PlaybackRepository>(
           create: (_) => PlaybackRepositoryImpl(),
         ),
         RepositoryProvider<RecentSearchRepository>(
           create: (_) => RecentSearchRepositoryImpl(),
+        ),
+        RepositoryProvider<AudioOutputService>(
+          create: (_) => AudioOutputService(),
         ),
       ],
       child: MultiBlocProvider(

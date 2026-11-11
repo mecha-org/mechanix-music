@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'package:mechanix_music/core/exceptions/app_exceptions.dart';
 import 'package:mechanix_music/core/utils/enums.dart';
 import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -186,7 +187,11 @@ void main() {
     blocTest<PlaybackBloc, PlaybackState>(
       'emits [loading, failure] and deletes song from repository when file not found occurs',
       setUp: () {
-        when(() => repo.play(any())).thenThrow(Exception('File not found'));
+        // The repository throws this when the file is gone; a generic
+        // exception is reported as an unknown error instead.
+        when(
+          () => repo.play(any()),
+        ).thenThrow(PlaybackFileNotFoundException('File not found'));
       },
       build: buildBloc,
       seed: () => PlaybackState(playbackList: list5),
@@ -206,6 +211,10 @@ void main() {
               'errorType',
               PlaybackErrorType.fileDeleted,
             ),
+        // It moves on to the next song.
+        isA<PlaybackState>()
+            .having((s) => s.status, 'status', PlaybackStatus.loading)
+            .having((s) => s.song, 'song', list5[3]),
       ],
       verify: (_) {
         verify(() => songRepo.deleteSongByPath(list5[2].path)).called(1);

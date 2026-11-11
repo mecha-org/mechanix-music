@@ -7,6 +7,7 @@ import 'package:mechanix_music/features/music/bloc/player/player_bloc.dart';
 import 'package:mechanix_music/features/music/bloc/player/player_state.dart';
 import 'package:mechanix_music/features/music/presentation/screens/search_screen.dart';
 import 'package:mechanix_music/features/music/presentation/widgets/landing/landing_view.dart';
+import 'package:mechanix_music/features/music/presentation/widgets/music/audio_output_sheet.dart';
 import 'package:mechanix_music/features/music/presentation/widgets/music/music_bottom_bar.dart';
 import 'package:mechanix_music/features/music/presentation/widgets/all_tracks/all_tracks_view.dart';
 import 'package:mechanix_music/l10n/music_localizations.dart';
@@ -99,8 +100,7 @@ class _MusicScreenState extends State<MusicScreen> {
             const AssetImage(MusicIcons.audiocastIcon),
             color: theme.colorScheme.onSurface,
           ),
-          // TODO: open the audio output / cast picker once it exists.
-          onPressed: () {},
+          onPressed: () => showAudioOutputSheet(context),
         ),
         searchButton,
       ],
