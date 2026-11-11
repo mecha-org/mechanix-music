@@ -41,7 +41,6 @@ dependencies:
   flutter_localizations:
     sdk: flutter
   mocktail: ^1.0.5
-  show_fps: ^1.1.0
   audioplayers: ^6.6.0
   audioplayers_elinux:
     # git:
@@ -52,12 +51,20 @@ dependencies:
       url: https://github.com/DhanishMecha/flutter-elinux-plugins.git
       path: packages/audioplayers
       ref: feat/audioplayers  
-  audiotags: ^1.4.5
   path: ^1.9.1
   bloc: ^9.2.1
   audio_metadata_reader: ^1.6.0
-  objectbox: ^5.3.2
   file: ^7.0.1
+  # Full-text search index that stores the song library.
+  flutter_tantivy:
+    git:
+      url: https://github.com/yogitah-mecha/flutter_tantivy.git
+      ref: feat/schema
+  widgets:
+    git:
+      url: https://github.com/mecha-org/mechanix.dart.git
+      path: widgets
+      ref: pre-release
 
   path_provider: any
   bloc_test: ^10.0.0
@@ -76,7 +83,6 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
   build_runner: ^2.15.0
-  objectbox_generator: ^5.3.2
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -106,10 +112,6 @@ flutter:
   # "family" key with the font family name, and a "fonts" key with a
   # list giving the asset and other descriptors for the font. For
   # example:
-  fonts:
-    - family: Sora
-      fonts:
-        - asset: assets/fonts/Sora-Regular.ttf
   # fonts:
   #   - family: Schyler
   #     fonts:

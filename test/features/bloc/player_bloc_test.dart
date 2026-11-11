@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:math';
 
+import 'package:mechanix_music/core/exceptions/app_exceptions.dart';
 import 'package:mechanix_music/core/utils/enums.dart';
 import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -185,7 +187,11 @@ void main() {
     blocTest<PlaybackBloc, PlaybackState>(
       'emits [loading, failure] and deletes song from repository when file not found occurs',
       setUp: () {
-        when(() => repo.play(any())).thenThrow(Exception('File not found'));
+        // The repository throws this when the file is gone; a generic
+        // exception is reported as an unknown error instead.
+        when(
+          () => repo.play(any()),
+        ).thenThrow(PlaybackFileNotFoundException('File not found'));
       },
       build: buildBloc,
       seed: () => PlaybackState(playbackList: list5),
@@ -205,6 +211,10 @@ void main() {
               'errorType',
               PlaybackErrorType.fileDeleted,
             ),
+        // It moves on to the next song.
+        isA<PlaybackState>()
+            .having((s) => s.status, 'status', PlaybackStatus.loading)
+            .having((s) => s.song, 'song', list5[3]),
       ],
       verify: (_) {
         verify(() => songRepo.deleteSongByPath(list5[2].path)).called(1);
@@ -545,7 +555,7 @@ void main() {
     );
 
     blocTest<PlaybackBloc, PlaybackState>(
-      'stops playback when the current song is removed from the list',
+      'stops playback when the current song is removed from the library',
       build: buildBloc,
       seed: () => PlaybackState(
         status: PlaybackStatus.playing,
@@ -554,9 +564,48 @@ void main() {
         currentIndex: 2,
       ),
       act: (bloc) =>
-          bloc.add(PlaybackListUpdated([list5[0], list5[1], list5[3]])),
+          bloc.add(PlaybackLibraryUpdated([list5[0], list5[1], list5[3]])),
       expect: () => const [PlaybackState(status: PlaybackStatus.stopped)],
       verify: (_) => verify(() => repo.stop()).called(1),
+    );
+
+    blocTest<PlaybackBloc, PlaybackState>(
+      'a new queue picked by the user keeps the current song playing',
+      build: buildBloc,
+      seed: () => PlaybackState(
+        status: PlaybackStatus.playing,
+        song: list5[2],
+        playbackList: list5,
+        currentIndex: 2,
+      ),
+      act: (bloc) => bloc.add(
+        PlaybackListUpdated([list5[0], list5[3]], followsLibrary: false),
+      ),
+      expect: () => [
+        PlaybackState(
+          status: PlaybackStatus.playing,
+          song: list5[2],
+          playbackList: [list5[0], list5[3]],
+          currentIndex: -1,
+          followsLibrary: false,
+        ),
+      ],
+      verify: (_) => verifyNever(() => repo.stop()),
+    );
+
+    blocTest<PlaybackBloc, PlaybackState>(
+      'library changes do not replace a playlist queue',
+      build: buildBloc,
+      seed: () => PlaybackState(
+        status: PlaybackStatus.playing,
+        song: list5[0],
+        playbackList: [list5[0], list5[3]],
+        followsLibrary: false,
+      ),
+      act: (bloc) =>
+          songStateController.add(SongLoaded(songs: list10, hasMore: false)),
+      wait: const Duration(milliseconds: 50),
+      expect: () => const <PlaybackState>[],
     );
   });
 
@@ -667,6 +716,302 @@ void main() {
 
         verify(() => repo.dispose()).called(1);
         expect(bloc.isClosed, isTrue);
+      },
+    );
+  });
+
+  group('repeat mode', () {
+    blocTest<PlaybackBloc, PlaybackState>(
+      'cycles off → all → one → off',
+      build: buildBloc,
+      act: (bloc) => bloc
+        ..add(const PlaybackCycleRepeatMode())
+        ..add(const PlaybackCycleRepeatMode())
+        ..add(const PlaybackCycleRepeatMode()),
+      expect: () => const [
+        PlaybackState(repeatMode: RepeatMode.all),
+        PlaybackState(repeatMode: RepeatMode.one),
+        PlaybackState(),
+      ],
+    );
+
+    test('repeat all wraps next to the first song at the end', () {
+      final state = PlaybackState(
+        song: list5[4],
+        playbackList: list5,
+        currentIndex: 4,
+        repeatMode: RepeatMode.all,
+      );
+      expect(state.hasNext, isTrue);
+      expect(state.nextSong, list5[0]);
+
+      final noRepeat = state.copyWith(repeatMode: RepeatMode.off);
+      expect(noRepeat.hasNext, isFalse);
+      expect(noRepeat.nextSong, isNull);
+    });
+
+    blocTest<PlaybackBloc, PlaybackState>(
+      'PlaybackPlayNext with repeat all plays the first song after the last',
+      build: buildBloc,
+      seed: () => PlaybackState(
+        status: PlaybackStatus.playing,
+        song: list5[4],
+        playbackList: list5,
+        currentIndex: 4,
+        repeatMode: RepeatMode.all,
+      ),
+      act: (bloc) => bloc.add(const PlaybackPlayNext()),
+      wait: const Duration(milliseconds: 450),
+      verify: (_) => verify(() => repo.play(list5[0].path)).called(1),
+    );
+
+    blocTest<PlaybackBloc, PlaybackState>(
+      'repeat one replays the current song when it completes',
+      build: buildBloc,
+      seed: () => PlaybackState(
+        status: PlaybackStatus.playing,
+        song: list5[2],
+        playbackList: list5,
+        currentIndex: 2,
+        repeatMode: RepeatMode.one,
+      ),
+      act: (_) => completeController.add(null),
+      wait: const Duration(milliseconds: 450),
+      verify: (_) {
+        verify(() => repo.play(list5[2].path)).called(1);
+        verifyNever(() => repo.play(list5[3].path));
+      },
+    );
+
+    blocTest<PlaybackBloc, PlaybackState>(
+      'stopping keeps the repeat and shuffle modes',
+      build: buildBloc,
+      seed: () => PlaybackState(
+        status: PlaybackStatus.playing,
+        song: list5[2],
+        playbackList: list5,
+        currentIndex: 2,
+        repeatMode: RepeatMode.all,
+        isShuffled: true,
+        shuffledList: list5,
+      ),
+      act: (bloc) => bloc.add(const PlaybackStop()),
+      expect: () => const [
+        PlaybackState(
+          status: PlaybackStatus.stopped,
+          repeatMode: RepeatMode.all,
+          isShuffled: true,
+        ),
+      ],
+    );
+  });
+
+  group('shuffle', () {
+    PlaybackBloc buildSeeded() =>
+        PlaybackBloc(repo, songBloc, random: Random(42));
+
+    blocTest<PlaybackBloc, PlaybackState>(
+      'turning shuffle on keeps the current song first and shuffles the rest',
+      build: buildSeeded,
+      seed: () => PlaybackState(
+        status: PlaybackStatus.playing,
+        song: list10[3],
+        playbackList: list10,
+        currentIndex: 3,
+      ),
+      act: (bloc) => bloc.add(const PlaybackToggleShuffle()),
+      verify: (bloc) {
+        final state = bloc.state;
+        expect(state.isShuffled, isTrue);
+        expect(state.shuffledList.first, list10[3]);
+        expect(
+          state.shuffledList.map((s) => s.path).toSet(),
+          list10.map((s) => s.path).toSet(),
+        );
+        expect(state.shuffledList.length, list10.length);
+        expect(state.playOrder, state.shuffledList);
+        expect(state.upNext, state.shuffledList.sublist(1));
+      },
+    );
+
+    blocTest<PlaybackBloc, PlaybackState>(
+      'turning shuffle off goes back to library order',
+      build: buildSeeded,
+      seed: () => PlaybackState(
+        status: PlaybackStatus.playing,
+        song: list5[1],
+        playbackList: list5,
+        currentIndex: 1,
+        isShuffled: true,
+        shuffledList: [list5[1], list5[4], list5[0], list5[3], list5[2]],
+      ),
+      act: (bloc) => bloc.add(const PlaybackToggleShuffle()),
+      expect: () => [
+        PlaybackState(
+          status: PlaybackStatus.playing,
+          song: list5[1],
+          playbackList: list5,
+          currentIndex: 1,
+        ),
+      ],
+    );
+
+    blocTest<PlaybackBloc, PlaybackState>(
+      'next and previous follow the shuffled order',
+      build: buildSeeded,
+      seed: () => PlaybackState(
+        status: PlaybackStatus.playing,
+        song: list5[4],
+        playbackList: list5,
+        currentIndex: 4,
+        isShuffled: true,
+        shuffledList: [list5[1], list5[4], list5[0], list5[3], list5[2]],
+      ),
+      act: (bloc) => bloc.add(const PlaybackPlayNext()),
+      wait: const Duration(milliseconds: 450),
+      verify: (bloc) {
+        verify(() => repo.play(list5[0].path)).called(1);
+        expect(bloc.state.song, list5[0]);
+        // Library index is still tracked for when shuffle is turned off.
+        expect(bloc.state.currentIndex, 0);
+        expect(bloc.state.previousSong, list5[4]);
+        expect(bloc.state.nextSong, list5[3]);
+      },
+    );
+
+    blocTest<PlaybackBloc, PlaybackState>(
+      'list updates keep the shuffled order and append new songs',
+      build: buildSeeded,
+      seed: () => PlaybackState(
+        status: PlaybackStatus.playing,
+        song: list5[1],
+        playbackList: list5,
+        currentIndex: 1,
+        isShuffled: true,
+        shuffledList: [list5[1], list5[4], list5[0], list5[3], list5[2]],
+      ),
+      act: (bloc) => bloc.add(PlaybackListUpdated(list10)),
+      verify: (bloc) {
+        final order = bloc.state.shuffledList;
+        expect(order.sublist(0, 5), [
+          list10[1],
+          list10[4],
+          list10[0],
+          list10[3],
+          list10[2],
+        ]);
+        expect(
+          order.sublist(5).map((s) => s.path).toSet(),
+          list10.sublist(5).map((s) => s.path).toSet(),
+        );
+      },
+    );
+  });
+
+  group('play next queue', () {
+    blocTest<PlaybackBloc, PlaybackState>(
+      'queues a song to play right after the current one',
+      build: buildBloc,
+      seed: () => PlaybackState(
+        status: PlaybackStatus.playing,
+        song: list5[0],
+        playbackList: list5,
+        currentIndex: 0,
+      ),
+      act: (bloc) => bloc
+        ..add(PlaybackQueueNext(list5[3]))
+        ..add(PlaybackQueueNext(outsider)),
+      verify: (bloc) {
+        // The most recent "play next" plays first.
+        expect(bloc.state.playNextQueue, [outsider, list5[3]]);
+        expect(bloc.state.nextSong, outsider);
+        expect(bloc.state.upNext.take(3), [outsider, list5[3], list5[1]]);
+      },
+    );
+
+    blocTest<PlaybackBloc, PlaybackState>(
+      'plays queued songs first, then continues after the original song',
+      build: buildBloc,
+      seed: () => PlaybackState(
+        status: PlaybackStatus.playing,
+        song: list5[0],
+        playbackList: list5,
+        currentIndex: 0,
+        playNextQueue: [list5[3]],
+      ),
+      act: (bloc) async {
+        bloc.add(const PlaybackPlayNext());
+        await Future<void>.delayed(const Duration(milliseconds: 450));
+        bloc.add(const PlaybackPlayNext());
+      },
+      wait: const Duration(milliseconds: 450),
+      verify: (bloc) {
+        verify(() => repo.play(list5[3].path)).called(1);
+        verify(() => repo.play(list5[1].path)).called(1);
+        expect(bloc.state.song, list5[1]);
+        expect(bloc.state.playNextQueue, isEmpty);
+        expect(bloc.state.anchorPath, isNull);
+      },
+    );
+
+    blocTest<PlaybackBloc, PlaybackState>(
+      'starts the song right away when nothing is playing',
+      build: buildBloc,
+      seed: () => PlaybackState(playbackList: list5),
+      act: (bloc) => bloc.add(PlaybackQueueNext(list5[2])),
+      wait: const Duration(milliseconds: 450),
+      verify: (bloc) {
+        verify(() => repo.play(list5[2].path)).called(1);
+        expect(bloc.state.playNextQueue, isEmpty);
+      },
+    );
+  });
+
+  group('sleep timer', () {
+    blocTest<PlaybackBloc, PlaybackState>(
+      'sets and cancels the sleep timer',
+      build: buildBloc,
+      act: (bloc) => bloc
+        ..add(const PlaybackSetSleepTimer(SleepTimerOption.minutes15))
+        ..add(const PlaybackSetSleepTimer(null)),
+      expect: () => const [
+        PlaybackState(sleepTimer: SleepTimerOption.minutes15),
+        PlaybackState(),
+      ],
+    );
+
+    blocTest<PlaybackBloc, PlaybackState>(
+      'pauses playback when the timer elapses',
+      build: buildBloc,
+      seed: () => PlaybackState(
+        status: PlaybackStatus.playing,
+        song: list5[0],
+        playbackList: list5,
+        sleepTimer: SleepTimerOption.minutes5,
+      ),
+      act: (bloc) => bloc.add(const PlaybackSleepTimerElapsed()),
+      verify: (bloc) {
+        verify(() => repo.pause()).called(1);
+        expect(bloc.state.sleepTimer, isNull);
+        expect(bloc.state.status, PlaybackStatus.paused);
+      },
+    );
+
+    blocTest<PlaybackBloc, PlaybackState>(
+      '"end of track" pauses when the song completes instead of playing next',
+      build: buildBloc,
+      seed: () => PlaybackState(
+        status: PlaybackStatus.playing,
+        song: list5[0],
+        playbackList: list5,
+        sleepTimer: SleepTimerOption.endOfTrack,
+      ),
+      act: (_) => completeController.add(null),
+      wait: const Duration(milliseconds: 450),
+      verify: (bloc) {
+        verifyNever(() => repo.play(any()));
+        verify(() => repo.pause()).called(1);
+        expect(bloc.state.sleepTimer, isNull);
       },
     );
   });

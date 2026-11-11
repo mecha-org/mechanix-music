@@ -32,3 +32,6 @@ doc/api/
 /dist/
 /stage/
 __pycache__/
+
+# Test coverage files
+coverage/

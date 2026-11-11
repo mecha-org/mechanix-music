@@ -285,6 +285,228 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Something went wrong'**
   String get errorPlaybackUnknown;
+
+  /// No description provided for @appTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Music'**
+  String get appTitle;
+
+  /// No description provided for @startPlaying.
+  ///
+  /// In en, this message translates to:
+  /// **'Start playing...'**
+  String get startPlaying;
+
+  /// No description provided for @artist.
+  ///
+  /// In en, this message translates to:
+  /// **'Artist'**
+  String get artist;
+
+  /// No description provided for @playingNext.
+  ///
+  /// In en, this message translates to:
+  /// **'Playing next'**
+  String get playingNext;
+
+  /// No description provided for @allTracks.
+  ///
+  /// In en, this message translates to:
+  /// **'All Tracks'**
+  String get allTracks;
+
+  /// No description provided for @playlist.
+  ///
+  /// In en, this message translates to:
+  /// **'Playlist'**
+  String get playlist;
+
+  /// No description provided for @playNext.
+  ///
+  /// In en, this message translates to:
+  /// **'Play next'**
+  String get playNext;
+
+  /// No description provided for @addToPlaylist.
+  ///
+  /// In en, this message translates to:
+  /// **'Add to playlist'**
+  String get addToPlaylist;
+
+  /// No description provided for @addToFavourite.
+  ///
+  /// In en, this message translates to:
+  /// **'Add to favourite'**
+  String get addToFavourite;
+
+  /// No description provided for @removeFromFavourite.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove from favourite'**
+  String get removeFromFavourite;
+
+  /// No description provided for @share.
+  ///
+  /// In en, this message translates to:
+  /// **'Share'**
+  String get share;
+
+  /// No description provided for @setSleepTimer.
+  ///
+  /// In en, this message translates to:
+  /// **'Set sleep timer'**
+  String get setSleepTimer;
+
+  /// No description provided for @cancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get cancel;
+
+  /// No description provided for @save.
+  ///
+  /// In en, this message translates to:
+  /// **'Save'**
+  String get save;
+
+  /// No description provided for @newPlaylist.
+  ///
+  /// In en, this message translates to:
+  /// **'New playlist'**
+  String get newPlaylist;
+
+  /// No description provided for @playlistName.
+  ///
+  /// In en, this message translates to:
+  /// **'Playlist name'**
+  String get playlistName;
+
+  /// No description provided for @noPlaylists.
+  ///
+  /// In en, this message translates to:
+  /// **'No playlists yet'**
+  String get noPlaylists;
+
+  /// No description provided for @endOfTrack.
+  ///
+  /// In en, this message translates to:
+  /// **'End of track'**
+  String get endOfTrack;
+
+  /// No description provided for @filePathCopied.
+  ///
+  /// In en, this message translates to:
+  /// **'File path copied'**
+  String get filePathCopied;
+
+  /// No description provided for @playlistsUpdated.
+  ///
+  /// In en, this message translates to:
+  /// **'Playlists updated'**
+  String get playlistsUpdated;
+
+  /// No description provided for @sleepTimerOff.
+  ///
+  /// In en, this message translates to:
+  /// **'Sleep timer off'**
+  String get sleepTimerOff;
+
+  /// No description provided for @tracksCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} tracks'**
+  String tracksCount(String count);
+
+  /// No description provided for @minutesCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} minutes'**
+  String minutesCount(int count);
+
+  /// No description provided for @playingNextSong.
+  ///
+  /// In en, this message translates to:
+  /// **'Playing next: {title}'**
+  String playingNextSong(String title);
+
+  /// No description provided for @sleepTimerSet.
+  ///
+  /// In en, this message translates to:
+  /// **'Sleep timer: {option}'**
+  String sleepTimerSet(String option);
+
+  /// No description provided for @playlists.
+  ///
+  /// In en, this message translates to:
+  /// **'Playlists'**
+  String get playlists;
+
+  /// No description provided for @createPlaylist.
+  ///
+  /// In en, this message translates to:
+  /// **'Create playlist'**
+  String get createPlaylist;
+
+  /// No description provided for @renamePlaylist.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename playlist'**
+  String get renamePlaylist;
+
+  /// No description provided for @remove.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove'**
+  String get remove;
+
+  /// No description provided for @addTracksTo.
+  ///
+  /// In en, this message translates to:
+  /// **'Add tracks to {name}'**
+  String addTracksTo(String name);
+
+  /// No description provided for @searchHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Search tracks, artists or playlist'**
+  String get searchHint;
+
+  /// No description provided for @noTracksFound.
+  ///
+  /// In en, this message translates to:
+  /// **'No Tracks Available'**
+  String get noTracksFound;
+
+  /// No description provided for @recent.
+  ///
+  /// In en, this message translates to:
+  /// **'Recent'**
+  String get recent;
+
+  /// No description provided for @audioOutputDevice.
+  ///
+  /// In en, this message translates to:
+  /// **'Audio output device'**
+  String get audioOutputDevice;
+
+  /// No description provided for @thisDeviceOutput.
+  ///
+  /// In en, this message translates to:
+  /// **'Comet'**
+  String get thisDeviceOutput;
+
+  /// No description provided for @noAudioOutputs.
+  ///
+  /// In en, this message translates to:
+  /// **'No audio output devices found'**
+  String get noAudioOutputs;
+
+  /// No description provided for @audioOutputFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not switch the audio output'**
+  String get audioOutputFailed;
 }
 
 class _AppLocalizationsDelegate

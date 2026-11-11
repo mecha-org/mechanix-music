@@ -61,5 +61,82 @@
   "errorUnknown": "Something went wrong",
   "errorOccurred": "An error occurred",
   "errorPlaybackFileDeleted": "File is deleted",
-  "errorPlaybackUnknown": "Something went wrong"
+  "errorPlaybackUnknown": "Something went wrong",
+
+  "appTitle": "Music",
+  "startPlaying": "Start playing...",
+  "artist": "Artist",
+  "playingNext": "Playing next",
+  "allTracks": "All Tracks",
+  "playlist": "Playlist",
+
+  "playNext": "Play next",
+  "addToPlaylist": "Add to playlist",
+  "addToFavourite": "Add to favourite",
+  "removeFromFavourite": "Remove from favourite",
+  "share": "Share",
+  "setSleepTimer": "Set sleep timer",
+  "cancel": "Cancel",
+  "save": "Save",
+  "newPlaylist": "New playlist",
+  "playlistName": "Playlist name",
+  "noPlaylists": "No playlists yet",
+  "endOfTrack": "End of track",
+  "filePathCopied": "File path copied",
+  "playlistsUpdated": "Playlists updated",
+  "sleepTimerOff": "Sleep timer off",
+  "tracksCount": "{count} tracks",
+  "@tracksCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "minutesCount": "{count} minutes",
+  "@minutesCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "playingNextSong": "Playing next: {title}",
+  "@playingNextSong": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "sleepTimerSet": "Sleep timer: {option}",
+  "@sleepTimerSet": {
+    "placeholders": {
+      "option": {
+        "type": "String"
+      }
+    }
+  },
+
+  "playlists": "Playlists",
+  "createPlaylist": "Create playlist",
+  "renamePlaylist": "Rename playlist",
+  "remove": "Remove",
+  "addTracksTo": "Add tracks to {name}",
+  "@addTracksTo": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+
+  "searchHint": "Search tracks, artists or playlist",
+  "noTracksFound": "No Tracks Available",
+  "recent": "Recent",
+
+  "audioOutputDevice": "Audio output device",
+  "thisDeviceOutput": "Comet",
+  "noAudioOutputs": "No audio output devices found",
+  "audioOutputFailed": "Could not switch the audio output"
 }

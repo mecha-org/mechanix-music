@@ -1,76 +1,114 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mechanix_music/core/utils/enums.dart';
 import 'package:integration_test/integration_test.dart';
-import 'package:mechanix_music/features/music/presentation/screens/player_screen.dart';
+import 'package:mechanix_music/features/music/presentation/screens/music_screen.dart';
+import 'package:mechanix_music/features/music/presentation/widgets/all_tracks/all_tracks_tile.dart';
+import 'package:mechanix_music/features/music/presentation/widgets/all_tracks/sleep_timer_sheet.dart';
+import 'package:mechanix_music/features/music/presentation/widgets/all_tracks/add_to_playlist_sheet.dart';
 import 'package:mechanix_music/features/music/presentation/widgets/music/music_mini_player.dart';
-import 'package:mechanix_music/features/music/presentation/widgets/music/tabs/track/track_empty_screen.dart';
-import 'package:mechanix_music/features/music/presentation/widgets/music/tabs/track/track_list.dart';
-import 'package:mechanix_music/features/music/presentation/widgets/music/tabs/track/track_tile.dart';
+import 'package:widgets/widgets.dart';
 
 import 'test_helper.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  group('Tracks tab', () {
+  /// Swipes [tile] left to reveal its menu button and opens the menu.
+  Future<void> openTrackMenu(WidgetTester tester, Finder tile) async {
+    await tester.drag(tile, const Offset(-200, 0));
+    await tester.pump(const Duration(milliseconds: 600));
+    final menuButton = find.descendant(
+      of: tile,
+      matching: find.byType(MechanixIconButton),
+    );
+    expect(menuButton, findsOneWidget);
+    await tester.tap(menuButton);
+    await tester.pump(const Duration(milliseconds: 400));
+  }
+
+  group('All tracks tab', () {
     testWidgets('full tracks flow', (tester) async {
-      // ── Launch & wait for tracks ──────────────────────────────────────────
+      // ── Launch & open All tracks ──────────────────────────────────────────
       await TestHelper.launchApp(tester);
       await TestHelper.waitForTracks(tester);
 
-      // --- Resolves to either a track list or the empty screen ---
-      final hasList = find.byType(TrackList).evaluate().isNotEmpty;
-      final isEmpty = find.byType(TrackEmptyScreen).evaluate().isNotEmpty;
-      expect(hasList || isEmpty, isTrue);
+      expect(find.text('All Tracks'), findsOneWidget);
 
       // ── Empty library path ────────────────────────────────────────────────
       if (!TestHelper.tracksAreLoaded()) {
-        expect(find.byType(TrackEmptyScreen), findsOneWidget);
         expect(find.text('No music tracks available'), findsOneWidget);
         return;
       }
 
-      // ── Tap a track → player opens ────────────────────────────────────────
-      final firstTrack = find.byType(TrackTile).first;
-      expect(firstTrack, findsOneWidget);
-
+      // ── Tap a track → it plays in place and the mini player shows ────────
+      final firstTrack = find.byType(AllTracksTile).first;
       await tester.tap(firstTrack);
       await TestHelper.pumpUntil(
         tester,
-        () => find.byType(PlayerScreen).evaluate().isNotEmpty,
-        reason: 'player screen to open after tapping a track',
+        () => find.byType(MusicMiniPlayer).evaluate().isNotEmpty,
+        reason: 'mini player after tapping a track',
       );
-      // Fixed pump — pumpAndSettle() hangs while audio stream is active.
-      await tester.pump(const Duration(milliseconds: 600));
-      expect(find.byType(PlayerScreen), findsOneWidget);
-      await tester.pump(const Duration(milliseconds: 600));
+      // Still on the All tracks tab of the same screen: nothing was pushed.
+      // (All tracks is a tab of MusicScreen, so MusicScreen is always there.)
+      expect(find.byType(MusicScreen), findsOneWidget);
+      expect(find.text('All Tracks'), findsOneWidget);
 
-      // ── Back → mini player is mounted ─────────────────────────────────────
-      await tester.tap(TestHelper.findMusicButton('assets/icons/back.png'));
+      // ── Swipe → menu with all actions ─────────────────────────────────────
+      await openTrackMenu(tester, firstTrack);
+      for (final label in [
+        'Play next',
+        'Add to playlist',
+        'Set sleep timer',
+      ]) {
+        expect(find.text(label), findsOneWidget, reason: label);
+      }
+      expect(
+        find.text('Add to favourite').evaluate().isNotEmpty ||
+            find.text('Remove from favourite').evaluate().isNotEmpty,
+        isTrue,
+      );
 
+      // ── Sleep timer sheet ────────────────────────────────────────────────
+      await tester.tap(find.text('Set sleep timer'));
       await tester.pump(const Duration(milliseconds: 600));
+      expect(find.byType(SleepTimerSheet), findsOneWidget);
+      expect(
+        find.byType(MechanixRadio<SleepTimerOption>),
+        findsNWidgets(SleepTimerOption.values.length),
+      );
+      expect(find.text('5 minutes'), findsOneWidget);
+      expect(find.text('End of track'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('sleep_timer_endOfTrack')));
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(find.byType(SleepTimerSheet), findsNothing);
 
+      // ── Add to playlist sheet: cancel closes it ──────────────────────────
+      await openTrackMenu(tester, firstTrack);
+      await tester.tap(find.text('Add to playlist'));
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(find.byType(AddToPlaylistSheet), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('add_to_playlist_cancel')));
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(find.byType(AddToPlaylistSheet), findsNothing);
+
+      // ── Mini player opens the full player ────────────────────────────────
+      // It pushes a MusicScreen on the player tab, titled "MUSIC".
+      await tester.tap(find.byType(MusicMiniPlayer));
       await TestHelper.pumpUntil(
         tester,
-        () => find.byType(PlayerScreen).evaluate().isEmpty,
-        reason: 'player screen to close',
+        () => find.text('MUSIC').evaluate().isNotEmpty,
+        reason: 'player screen from the mini player',
       );
-      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(find.text('All Tracks'), findsNothing);
 
-      expect(find.byType(MusicMiniPlayer), findsOneWidget);
-
-      // ── Track list scrolls without crashing ───────────────────────────────
-      await tester.drag(find.byType(TrackList), const Offset(0, -400));
-      await tester.pump(const Duration(milliseconds: 400));
-
-      expect(find.byType(TrackList), findsOneWidget);
-
-      // ── Pause before leaving — stops FramePositionUpdater callbacks ───────
-      final pauseBtn = TestHelper.findMusicButton('assets/icons/pause.png');
-      if (pauseBtn.evaluate().isNotEmpty) {
-        await tester.tap(pauseBtn);
-        await tester.pump(const Duration(milliseconds: 400));
-      }
+      // ── Pause before leaving — stops position updates ─────────────────────
+      // final pauseBtn = TestHelper.findMusicButton('assets/icons/pause.png');
+      // if (pauseBtn.evaluate().isNotEmpty) {
+      //   await tester.tap(pauseBtn);
+      //   await tester.pump(const Duration(milliseconds: 400));
+      // }
     });
   });
 }
