@@ -24,6 +24,10 @@ class Constants {
   static const String recentSearchesFilePath =
       '.config/mechanix_apps/music/recent_searches.m3u8';
 
+  /// Files scanned (and saved) per batch, so a big first scan does not hold
+  /// every song's tags in memory at once.
+  static const int scanBatchSize = 50;
+
   /// Maximum number of songs kept in the recent searches.
   static const int recentSearchesLimit = 10;
 

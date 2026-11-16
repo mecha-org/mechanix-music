@@ -2,7 +2,7 @@ class MusicIcons {
   static const String audiocastIcon = 'assets/icons/audiocast.png';
   static const String backIcon = 'assets/icons/back.png';
   static const String closeIcon = 'assets/icons/close.png';
-  static const String musicIcon = 'assets/icons/music.png';
+  static const String artworkIcon = 'assets/icons/artwork.png';
   static const String nextIcon = 'assets/icons/next.png';
   static const String musicDisc = 'assets/icons/music_disc.png';
   static const String musicNote = 'assets/icons/music_note.png';
@@ -21,4 +21,5 @@ class MusicIcons {
   static const String check = 'assets/icons/check.png';
   static const String dragHandle = 'assets/icons/drag_handle.png';
   static const String delete = 'assets/icons/delete.png';
+  static const String comet = 'assets/icons/comet.png';
 }

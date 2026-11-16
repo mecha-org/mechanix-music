@@ -1,36 +1,71 @@
-import 'dart:convert';
-import 'dart:io';
+import 'dart:async';
 
 import 'package:mechanix_music/core/utils/app_logger.dart';
 import 'package:mechanix_music/features/music/data/models/audio_output.dart';
+import 'package:pulseaudio/pulseaudio.dart';
 
-/// Runs a command and returns its result (replaceable in tests).
-typedef ProcessRunner =
-    Future<ProcessResult> Function(String executable, List<String> arguments);
-
-/// Lists and switches audio outputs with `pactl`, which talks to
-/// PulseAudio or PipeWire (through pipewire-pulse).
-///
-/// The app plays through GStreamer, which uses the default output, so
-/// switching sets the default output and moves this app's playing streams
-/// to it right away.
+/// Lists the audio outputs and switches between them through PulseAudio
+/// The output is the PulseAudio default sink: picking one here sets the
+/// default, as Settings → Sound → Output device does.
 class AudioOutputService {
-  AudioOutputService({ProcessRunner? run, int? processId})
-    : _run = run ?? Process.run,
-      _pid = processId ?? pid;
+  AudioOutputService({PulseAudioClient? client})
+    : _client = client ?? PulseAudioClient();
 
-  final ProcessRunner _run;
-  final int _pid;
+  final PulseAudioClient _client;
+  Future<void>? _connecting;
 
-  /// All outputs, the current one marked [AudioOutput.isSelected]. Empty
-  /// when `pactl` is missing or fails.
+  /// Connects once; a failed connection is retried on the next call.
+  Future<void> _ensureConnected() async {
+    final connecting = _connecting ??= _client.initialize();
+    try {
+      await connecting;
+    } catch (_) {
+      if (identical(_connecting, connecting)) _connecting = null;
+      rethrow;
+    }
+  }
+
+  /// Fires when an output appears, disappears or changes, or the default
+  /// output changes (also from the Settings app), so a shown list can be
+  /// reloaded.
+  Stream<void> get changes {
+    final subscriptions = <StreamSubscription<Object?>>[];
+    late final StreamController<void> controller;
+    controller = StreamController<void>(
+      onListen: () async {
+        try {
+          await _ensureConnected();
+        } catch (_) {
+          await controller.close();
+          return;
+        }
+        for (final events in <Stream<Object?>>[
+          _client.onSinkChanged,
+          _client.onSinkRemoved,
+          _client.onServerInfoChanged,
+        ]) {
+          subscriptions.add(events.listen((_) => controller.add(null)));
+        }
+      },
+      onCancel: () async {
+        for (final subscription in subscriptions) {
+          await subscription.cancel();
+        }
+      },
+    );
+    return controller.stream;
+  }
+
+  /// All outputs, the current (default) one marked [AudioOutput.isSelected].
+  /// Empty when PulseAudio cannot be reached.
   Future<List<AudioOutput>> getOutputs() async {
     try {
-      final sinks = await _json(['list', 'sinks']);
-      final selected = await _defaultSink();
+      await _ensureConnected();
+      final sinks = await _client.getSinkList();
+      final selected = (await _client.getServerInfo()).defaultSinkName;
       return [
-        for (final sink in sinks.whereType<Map<String, dynamic>>())
-          ?parseSink(sink, selectedId: selected),
+        for (final sink in sinks)
+          ?toOutput(sink.name, sink.description, selectedName: selected),
       ];
     } catch (e) {
       AppLogger.e('[AudioOutputService] Listing outputs failed: $e');
@@ -38,114 +73,62 @@ class AudioOutputService {
     }
   }
 
-  /// Plays audio on [output]. Throws when switching fails.
+  /// Plays audio on [output] (makes it the default output). Throws when
+  /// switching fails.
   Future<void> select(AudioOutput output) async {
-    await _pactl(['set-default-sink', output.id]);
-
-    // Move this app's streams too, in case they were pinned to a sink.
-    try {
-      final inputs = await _json(['list', 'sink-inputs']);
-      for (final input in inputs.whereType<Map<String, dynamic>>()) {
-        final props = input['properties'];
-        final owner = props is Map ? props['application.process.id'] : null;
-        if (owner?.toString() != _pid.toString()) continue;
-        await _pactl(['move-sink-input', '${input['index']}', output.id]);
-      }
-    } catch (e) {
-      // The default output changed; streams follow it on PipeWire.
-      AppLogger.e('[AudioOutputService] Moving streams failed: $e');
-    }
+    await _ensureConnected();
+    await _client.setDefaultSink(output.id);
     AppLogger.i('[AudioOutputService] Audio output: ${output.name}');
   }
 
-  Future<String?> _defaultSink() async {
-    try {
-      final name = (await _pactl(['get-default-sink'])).trim();
-      if (name.isNotEmpty) return name;
-    } catch (_) {
-      // Older pactl without get-default-sink: read it from `pactl info`.
-    }
-    final info = await _pactl(['info']);
-    for (final line in const LineSplitter().convert(info)) {
-      if (line.startsWith('Default Sink:')) {
-        return line.substring('Default Sink:'.length).trim();
-      }
-    }
-    return null;
-  }
-
-  Future<List<dynamic>> _json(List<String> args) async {
-    final decoded = jsonDecode(await _pactl(['-f', 'json', ...args]));
-    return decoded is List ? decoded : const [];
-  }
-
-  Future<String> _pactl(List<String> args) async {
-    final result = await _run('pactl', args);
-    if (result.exitCode != 0) {
-      throw ProcessException(
-        'pactl',
-        args,
-        '${result.stderr}'.trim(),
-        result.exitCode,
-      );
-    }
-    return '${result.stdout}';
-  }
-
-  /// An [AudioOutput] for a `pactl -f json list sinks` entry, or null for
-  /// sinks that are not real outputs (monitors, dummy and null sinks).
-  static AudioOutput? parseSink(
-    Map<String, dynamic> sink, {
-    String? selectedId,
+  /// An [AudioOutput] for the sink [name] / [description], or null for sinks
+  /// that are not real outputs (monitors, dummy and null sinks).
+  static AudioOutput? toOutput(
+    String name,
+    String description, {
+    String? selectedName,
   }) {
-    final id = sink['name'];
-    if (id is! String || id.isEmpty) return null;
-    final props = sink['properties'] is Map
-        ? (sink['properties'] as Map).cast<String, dynamic>()
-        : const <String, dynamic>{};
-    final factory = '${props['factory.name'] ?? ''}';
-    if (id == 'auto_null' || factory.contains('null-audio-sink')) return null;
-
-    final description = '${sink['description'] ?? ''}'.trim();
+    if (name.isEmpty ||
+        name.contains('.monitor') ||
+        name == 'auto_null' ||
+        name.contains('null-sink')) {
+      return null;
+    }
+    final label = description.trim();
     return AudioOutput(
-      id: id,
-      name: description.isEmpty ? id : description,
-      kind: _kind(id, sink, props),
-      isSelected: id == selectedId,
+      id: name,
+      name: label.isEmpty ? name : label,
+      kind: kindOf(name, label),
+      isSelected: name == selectedName,
     );
   }
 
-  static AudioOutputKind _kind(
-    String id,
-    Map<String, dynamic> sink,
-    Map<String, dynamic> props,
-  ) {
-    final bus = '${props['device.bus'] ?? ''}'.toLowerCase();
-    final formFactor = '${props['device.form_factor'] ?? ''}'.toLowerCase();
-    final port = '${sink['active_port'] ?? ''}'.toLowerCase();
-    final text = '$id ${sink['description'] ?? ''} $port'.toLowerCase();
-
+  /// The kind of output, from its sink name and description (libpulse
+  /// names follow `alsa_output.<card>.<profile>` / `bluez_output.<mac>…`).
+  static AudioOutputKind kindOf(String name, String description) {
+    final text = '$name $description'.toLowerCase();
     final isHeadphones =
-        formFactor == 'headphone' ||
-        formFactor == 'headset' ||
-        formFactor == 'hands-free' ||
-        port.contains('headphone') ||
-        port.contains('headset');
+        text.contains('headphone') ||
+        text.contains('headset') ||
+        text.contains('hands-free') ||
+        text.contains('handsfree');
 
-    if (bus == 'bluetooth' || id.startsWith('bluez_')) {
+    if (name.startsWith('bluez_') || text.contains('bluetooth')) {
       return isHeadphones
           ? AudioOutputKind.headphones
           : AudioOutputKind.bluetooth;
     }
     if (text.contains('hdmi') ||
         text.contains('displayport') ||
-        formFactor == 'tv' ||
-        formFactor == 'monitor') {
+        text.contains('display port')) {
       return AudioOutputKind.display;
     }
     if (isHeadphones) return AudioOutputKind.headphones;
-    if (bus == 'usb') return AudioOutputKind.usb;
-    if (formFactor == 'internal' || bus == 'pci' || id.startsWith('alsa_')) {
+    if (text.contains('usb')) return AudioOutputKind.usb;
+    if (name.startsWith('alsa_output.') ||
+        text.contains('built-in') ||
+        text.contains('internal') ||
+        text.contains('speaker')) {
       return AudioOutputKind.internal;
     }
     return AudioOutputKind.other;

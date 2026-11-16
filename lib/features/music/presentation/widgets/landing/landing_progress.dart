@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:mechanix_music/core/utils/helper.dart';
@@ -49,6 +51,52 @@ class _PositionedProgressState extends State<_PositionedProgress> {
   /// Fraction shown while the user drags, or null when not dragging.
   double? _dragFraction;
 
+  /// Last position from the player.
+  Duration _position = Duration.zero;
+
+  StreamSubscription<Duration>? _positionSub;
+
+  /// What the bar shows (0–1) and the elapsed label (whole seconds). Only
+  /// the bar and that label listen, so position ticks rebuild nothing else
+  /// (the layout, the gestures and the total-time label stay as they are).
+  final _fraction = ValueNotifier<double>(0);
+  final _elapsedSeconds = ValueNotifier<int>(0);
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.hasSong) {
+      _positionSub = context.read<PlaybackRepository>().onPositionChanged
+          .listen((position) {
+            _position = position;
+            _update();
+          });
+    }
+  }
+
+  @override
+  void didUpdateWidget(_PositionedProgress oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.duration != widget.duration) _update();
+  }
+
+  @override
+  void dispose() {
+    _positionSub?.cancel();
+    _fraction.dispose();
+    _elapsedSeconds.dispose();
+    super.dispose();
+  }
+
+  /// Pushes the shown position (the drag, or the player's) to the bar and
+  /// the elapsed label.
+  void _update() {
+    final drag = _dragFraction;
+    final shown = drag != null ? widget.duration * drag : _position;
+    _fraction.value = drag ?? _fractionOf(_position);
+    _elapsedSeconds.value = shown.inSeconds;
+  }
+
   double _fractionOf(Duration position) {
     final total = widget.duration.inMilliseconds;
     if (total <= 0) return 0;
@@ -63,6 +111,11 @@ class _PositionedProgressState extends State<_PositionedProgress> {
     context.read<PlaybackBloc>().add(PlaybackSeek(target));
   }
 
+  void _drag(double? fraction) {
+    _dragFraction = fraction;
+    _update();
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -73,49 +126,36 @@ class _PositionedProgressState extends State<_PositionedProgress> {
     );
     final canSeek = widget.hasSong && widget.duration > Duration.zero;
 
-    return StreamBuilder<Duration>(
-      stream: widget.hasSong
-          ? context.read<PlaybackRepository>().onPositionChanged
-          : null,
-      initialData: Duration.zero,
-      builder: (context, snapshot) {
-        final position = snapshot.data ?? Duration.zero;
-        final fraction = _dragFraction ?? _fractionOf(position);
-        final shownPosition = _dragFraction != null
-            ? widget.duration * _dragFraction!
-            : position;
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final width = constraints.maxWidth;
-                return GestureDetector(
-                  key: const ValueKey('landing_progress_bar'),
-                  behavior: HitTestBehavior.opaque,
-                  onTapUp: canSeek
-                      ? (d) => _seekTo(_fractionAt(d.localPosition, width))
-                      : null,
-                  onHorizontalDragUpdate: canSeek
-                      ? (d) => setState(
-                          () => _dragFraction = _fractionAt(
-                            d.localPosition,
-                            width,
-                          ),
-                        )
-                      : null,
-                  onHorizontalDragEnd: canSeek
-                      ? (_) {
-                          final target = _dragFraction;
-                          setState(() => _dragFraction = null);
-                          if (target != null) _seekTo(target);
-                        }
-                      : null,
-                  child: SizedBox(
-                    height: 24,
-                    child: CustomPaint(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final width = constraints.maxWidth;
+            return GestureDetector(
+              key: const ValueKey('landing_progress_bar'),
+              behavior: HitTestBehavior.opaque,
+              onTapUp: canSeek
+                  ? (d) => _seekTo(_fractionAt(d.localPosition, width))
+                  : null,
+              onHorizontalDragUpdate: canSeek
+                  ? (d) => _drag(_fractionAt(d.localPosition, width))
+                  : null,
+              onHorizontalDragEnd: canSeek
+                  ? (_) {
+                      final target = _dragFraction;
+                      _drag(null);
+                      if (target != null) _seekTo(target);
+                    }
+                  : null,
+              // Ticks repaint only the bar, not the rest of the screen.
+              child: RepaintBoundary(
+                child: SizedBox(
+                  height: 24,
+                  child: ValueListenableBuilder<double>(
+                    valueListenable: _fraction,
+                    builder: (_, fraction, _) => CustomPaint(
                       painter: _ProgressPainter(
                         fraction: fraction,
                         activeColor: colorScheme.primary,
@@ -126,20 +166,26 @@ class _PositionedProgressState extends State<_PositionedProgress> {
                       ),
                     ),
                   ),
-                );
-              },
+                ),
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: 4),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            ValueListenableBuilder<int>(
+              valueListenable: _elapsedSeconds,
+              builder: (_, seconds, _) => Text(
+                formatDuration(Duration(seconds: seconds)),
+                style: timeStyle,
+              ),
             ),
-            const SizedBox(height: 4),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(formatDuration(shownPosition), style: timeStyle),
-                Text(formatDuration(widget.duration), style: timeStyle),
-              ],
-            ),
+            Text(formatDuration(widget.duration), style: timeStyle),
           ],
-        );
-      },
+        ),
+      ],
     );
   }
 }

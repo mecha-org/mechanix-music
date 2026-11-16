@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:math' as math;
 
 import 'package:mechanix_music/core/exceptions/app_exceptions.dart';
 import 'package:mechanix_music/core/services/file_scanner_service.dart';
@@ -213,28 +214,41 @@ class SongRepositoryImpl extends SongRepository {
         return false;
       }
 
-      // 3. Read the tags of new/modified files (slow, so off the UI isolate).
-      final previous = {
-        for (final song in await _index.getByPaths(newOrModified))
-          song.path: song,
-      };
-      final updated = <SongModel>[];
-      for (final song in await _scan(newOrModified)) {
-        // Keep the id stable across rescans.
-        if (previous[song.path] case final old?) song.id = old.id;
-        updated.add(await _withFileStat(song));
-      }
-
-      // 4. Save.
+      // 3. Drop the songs that are gone.
       await _index.delete(toRemove);
-      await _index.upsert(updated);
       if (toRemove.isNotEmpty && !_onSongsRemoved.isClosed) {
         _onSongsRemoved.add(toRemove);
       }
 
+      // 4. Read the tags of new/modified files (slow, so off the UI isolate)
+      //    and save them in batches, so a big first scan never holds every
+      //    song in memory at once.
+      var updatedCount = 0;
+      for (
+        var start = 0;
+        start < newOrModified.length;
+        start += Constants.scanBatchSize
+      ) {
+        final batch = newOrModified.sublist(
+          start,
+          math.min(start + Constants.scanBatchSize, newOrModified.length),
+        );
+        final previous = {
+          for (final song in await _index.getByPaths(batch)) song.path: song,
+        };
+        final updated = <SongModel>[];
+        for (final song in await _scan(batch)) {
+          // Keep the id stable across rescans.
+          if (previous[song.path] case final old?) song.id = old.id;
+          updated.add(await _withFileStat(song));
+        }
+        await _index.upsert(updated);
+        updatedCount += updated.length;
+      }
+
       AppLogger.i(
         '[SongRepository] Sync completed for $musicDir: '
-        '${updated.length} added/updated, ${toRemove.length} removed',
+        '$updatedCount added/updated, ${toRemove.length} removed',
       );
       _startWatcher();
       return true;

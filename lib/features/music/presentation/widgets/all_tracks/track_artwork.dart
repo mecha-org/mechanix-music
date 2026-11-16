@@ -22,7 +22,7 @@ class TrackArtwork extends StatelessWidget {
   final double size;
   final bool highlighted;
 
-  /// Background colour of the placeholder asset ([MusicIcons.musicIcon]).
+  /// Background colour of the placeholder asset ([MusicIcons.artworkIcon]).
   static const Color _placeholderBackground = Color(0xFFECE6F0);
 
   /// Side of the placeholder asset in pixels and the width of its dark edge.
@@ -67,7 +67,12 @@ class ProgressArtwork extends StatefulWidget {
 }
 
 class _ProgressArtworkState extends State<ProgressArtwork> {
-  double _progress = 0.0;
+  /// Only the ring listens to this, so position ticks do not rebuild the
+  /// artwork.
+  final _progress = ValueNotifier<double>(0);
+
+  /// Smallest change worth redrawing: a 56 px ring cannot show less.
+  static const double _minStep = 0.005;
   bool _isTransitioning = false;
   int _durationMs = 0;
 
@@ -95,21 +100,20 @@ class _ProgressArtworkState extends State<ProgressArtwork> {
   }
 
   void _onPosition(Duration pos) {
-    if (!_isTransitioning && _durationMs > 0 && mounted) {
-      setState(() {
-        _progress = (pos.inMilliseconds / _durationMs).clamp(0.0, 1.0);
-      });
+    if (_isTransitioning || _durationMs <= 0 || !mounted) return;
+    final progress = (pos.inMilliseconds / _durationMs).clamp(0.0, 1.0);
+    if ((progress - _progress.value).abs() >= _minStep || progress == 1) {
+      _progress.value = progress;
     }
   }
 
-  // Duration listener with debounce to avoid flickering on next song
-  void _onDurationChanged(int durationMs) {
+  // New song (or its duration is known): back to 0, ignoring the old song's
+  // late position updates for a moment so the ring does not flicker.
+  void _onSongChanged(int durationMs) {
     _durationMs = durationMs;
     _debounceTimer?.cancel();
-    setState(() {
-      _isTransitioning = true;
-      _progress = 0.0;
-    });
+    _isTransitioning = true;
+    _progress.value = 0;
     _debounceTimer = Timer(const Duration(milliseconds: 400), () {
       // Only gates position updates; nothing to redraw.
       _isTransitioning = false;
@@ -120,6 +124,7 @@ class _ProgressArtworkState extends State<ProgressArtwork> {
   void dispose() {
     _debounceTimer?.cancel();
     _positionSub?.cancel();
+    _progress.dispose();
     super.dispose();
   }
 
@@ -129,9 +134,11 @@ class _ProgressArtworkState extends State<ProgressArtwork> {
     final size = widget.size;
 
     return BlocListener<PlaybackBloc, PlaybackState>(
-      listenWhen: (prev, curr) => prev.songDuration != curr.songDuration,
-      listener: (_, state) =>
-          _onDurationChanged(state.songDuration.inMilliseconds),
+      // The song too: two songs in a row can have the same duration.
+      listenWhen: (prev, curr) =>
+          prev.song?.path != curr.song?.path ||
+          prev.songDuration != curr.songDuration,
+      listener: (_, state) => _onSongChanged(state.songDuration.inMilliseconds),
       child: RepaintBoundary(
         child: SizedBox.square(
           dimension: size,
@@ -140,15 +147,18 @@ class _ProgressArtworkState extends State<ProgressArtwork> {
             children: [
               SizedBox.square(
                 dimension: size,
-                child: CircularProgressIndicator(
-                  value: _progress,
-                  strokeWidth: widget.strokeWidth,
-                  strokeCap: StrokeCap.round,
-                  backgroundColor: colorScheme.onSurface.withValues(
-                    alpha: 0.12,
-                  ),
-                  valueColor: AlwaysStoppedAnimation<Color>(
-                    colorScheme.primary,
+                child: ValueListenableBuilder<double>(
+                  valueListenable: _progress,
+                  builder: (_, progress, _) => CircularProgressIndicator(
+                    value: progress,
+                    strokeWidth: widget.strokeWidth,
+                    strokeCap: StrokeCap.round,
+                    backgroundColor: colorScheme.onSurface.withValues(
+                      alpha: 0.12,
+                    ),
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      colorScheme.primary,
+                    ),
                   ),
                 ),
               ),
@@ -202,7 +212,7 @@ class ArtworkCircle extends StatelessWidget {
               heightFactor: visible,
               child: Image(
                 image: ResizeImage(
-                  const AssetImage(MusicIcons.musicIcon),
+                  const AssetImage(MusicIcons.artworkIcon),
                   width: cacheSize,
                   height: cacheSize,
                   policy: ResizeImagePolicy.fit,

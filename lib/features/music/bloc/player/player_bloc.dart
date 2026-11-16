@@ -18,6 +18,8 @@ class PlaybackBloc extends Bloc<PlaybackEvent, PlaybackState> {
   Timer? _playDebounce; // Handle rapid song clicks efficiently
   final SongBloc _songBloc;
   late final StreamSubscription<SongState> _songSub;
+  late final StreamSubscription<void> _completeSub;
+  late final StreamSubscription<Duration> _durationSub;
 
   /// Source of randomness for shuffle (injectable for tests).
   final Random _random;
@@ -55,7 +57,7 @@ class PlaybackBloc extends Bloc<PlaybackEvent, PlaybackState> {
   }
 
   void _listenToDurationChanged() {
-    _repo.onDurationChanged.listen((duration) async {
+    _durationSub = _repo.onDurationChanged.listen((duration) async {
       if (duration.inMilliseconds > 0) {
         AppLogger.i('[PlaybackBloc] Duration ready: $duration');
         add(PlaybackDurationUpdated(duration));
@@ -73,7 +75,13 @@ class PlaybackBloc extends Bloc<PlaybackEvent, PlaybackState> {
 
   void _listenToSongBloc() {
     _songSub = _songBloc.stream.listen((songState) {
-      AppLogger.i('[PlaybackBloc] Song state updated: $songState');
+      // Not the state itself: it would print every song of the library.
+      AppLogger.i(
+        '[PlaybackBloc] Song state updated: ${switch (songState) {
+          SongLoaded(:final songs) => 'loaded (${songs.length} songs)',
+          _ => songState.runtimeType,
+        }}',
+      );
       if (songState is SongLoaded) {
         add(PlaybackLibraryUpdated(songState.songs));
       }
@@ -81,7 +89,7 @@ class PlaybackBloc extends Bloc<PlaybackEvent, PlaybackState> {
   }
 
   void _listenToSongComplete() {
-    _repo.onSongComplete.listen((_) {
+    _completeSub = _repo.onSongComplete.listen((_) {
       AppLogger.i('[PlaybackBloc] Song completed, attempting to play next...');
       final current = state.song;
       if (state.sleepTimer == SleepTimerOption.endOfTrack) {
@@ -520,6 +528,8 @@ class PlaybackBloc extends Bloc<PlaybackEvent, PlaybackState> {
     _playDebounce?.cancel();
     _sleepTimer?.cancel();
     await _songSub.cancel();
+    await _completeSub.cancel();
+    await _durationSub.cancel();
     await _repo.dispose();
     return super.close();
   }

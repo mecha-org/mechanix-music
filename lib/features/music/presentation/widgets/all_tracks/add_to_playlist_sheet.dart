@@ -322,7 +322,7 @@ class _PlaylistRow extends StatelessWidget {
         child: Row(
           children: [
             Image.asset(
-              MusicIcons.musicIcon,
+              MusicIcons.artworkIcon,
               width: 54,
               height: 54,
               fit: BoxFit.cover,

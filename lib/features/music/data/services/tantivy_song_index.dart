@@ -25,6 +25,29 @@ class TantivySongIndex implements SongIndex {
 
   bool _opened = false;
 
+  /// Held for the life of the process: our own lock on the index folder, so
+  /// a second instance is detected without depending on the wording of the
+  /// native library's errors. POSIX locks belong to the process, so a hot
+  /// restart (same process) takes it again without a conflict.
+  static RandomAccessFile? _instanceLock;
+
+  /// Takes [_instanceLock] in [dir]. Returns false when another process
+  /// holds it.
+  static Future<bool> _lockInstance(Directory dir) async {
+    if (_instanceLock != null) return true;
+    final file = await File(
+      p.join(dir.path, '.mechanix-music.lock'),
+    ).open(mode: FileMode.append);
+    try {
+      await file.lock(FileLock.exclusive);
+      _instanceLock = file;
+      return true;
+    } on FileSystemException {
+      await file.close();
+      return false;
+    }
+  }
+
   static String _defaultIndexDirectory() {
     final home = Platform.environment['HOME'] ?? '/home';
     return p.join(home, Constants.tantivyIndexPath);
@@ -43,16 +66,10 @@ class TantivySongIndex implements SongIndex {
 
     final dir = Directory(_indexDirectoryProvider());
     await dir.create(recursive: true);
-    try {
-      tantivy.initTantivy(dirPath: dir.path, tokenizerType: 'default');
-    } catch (e) {
-      // Tantivy allows a single index writer per directory, so a second
-      // instance of the app fails to take the lock.
-      if (e.toString().contains('LockBusy')) {
-        throw AppAlreadyRunningException();
-      }
-      rethrow;
-    }
+    // Tantivy allows a single index writer per folder; check for another
+    // instance ourselves first.
+    if (!await _lockInstance(dir)) throw AppAlreadyRunningException();
+    tantivy.initTantivy(dirPath: dir.path, tokenizerType: 'default');
     _opened = true;
     AppLogger.i('[TantivySongIndex] Opened at ${dir.path}');
   }

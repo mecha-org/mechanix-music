@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:mechanix_music/core/utils/icons.dart';
@@ -29,11 +31,21 @@ class AudioOutputSheet extends StatefulWidget {
 class _AudioOutputSheetState extends State<AudioOutputSheet> {
   List<AudioOutput>? _outputs;
   bool _switching = false;
+  StreamSubscription<void>? _changesSub;
 
   @override
   void initState() {
     super.initState();
     _load();
+    // Outputs plugged in or removed (e.g. a Bluetooth speaker) and output
+    // changes made in Settings show up while the sheet is open.
+    _changesSub = widget.service.changes.listen((_) => _load());
+  }
+
+  @override
+  void dispose() {
+    _changesSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -155,10 +167,9 @@ class _AudioOutputSheetState extends State<AudioOutputSheet> {
                   ),
                 ),
                 trailingWidgets: [
-                  Icon(
-                    _icon(output.kind),
-                    size: 20,
-                    color: output.isSelected
+                  _icon(
+                    output.kind,
+                    output.isSelected
                         ? theme.colorScheme.onSurfaceVariant
                         : theme.colorScheme.onSurface,
                   ),
@@ -171,12 +182,25 @@ class _AudioOutputSheetState extends State<AudioOutputSheet> {
     );
   }
 
-  static IconData _icon(AudioOutputKind kind) => switch (kind) {
-    AudioOutputKind.internal => Icons.smartphone_outlined,
-    AudioOutputKind.display => Icons.laptop_outlined,
-    AudioOutputKind.headphones => Icons.headphones_outlined,
-    AudioOutputKind.bluetooth => Icons.speaker_outlined,
-    AudioOutputKind.usb => Icons.speaker_outlined,
-    AudioOutputKind.other => Icons.volume_up_outlined,
-  };
+  /// The icon for an output: the Comet image asset for the device itself,
+  /// Material icons for the rest. Both are 20 px and tinted [color].
+  static Widget _icon(AudioOutputKind kind, Color color) {
+    const size = 20.0;
+    if (kind == AudioOutputKind.internal) {
+      return ImageIcon(
+        const AssetImage(MusicIcons.comet),
+        size: size,
+        color: color,
+      );
+    }
+    final icon = switch (kind) {
+      AudioOutputKind.display => Icons.laptop_outlined,
+      AudioOutputKind.headphones => Icons.headphones_outlined,
+      AudioOutputKind.bluetooth => Icons.speaker_outlined,
+      AudioOutputKind.usb => Icons.speaker_outlined,
+      AudioOutputKind.internal ||
+      AudioOutputKind.other => Icons.volume_up_outlined,
+    };
+    return Icon(icon, size: size, color: color);
+  }
 }

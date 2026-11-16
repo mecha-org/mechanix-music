@@ -1,5 +1,4 @@
 import 'package:mechanix_music/core/utils/artwork.dart';
-import 'package:equatable/equatable.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:mechanix_music/core/utils/icons.dart';
@@ -64,9 +63,21 @@ class _PlayingNextState extends State<PlayingNext> {
       color: theme.colorScheme.onSurfaceVariant,
     );
 
-    return BlocSelector<PlaybackBloc, PlaybackState, _Queue>(
-      selector: (state) => _Queue(state.queue.songs, state.queue.currentIndex),
-      builder: (context, queue) {
+    // Selects only what the queue is made of. Records compare lists by
+    // identity, so this check is O(1) on every state emission (play/pause,
+    // duration, sleep timer…); the queue is only rebuilt when it changes.
+    return BlocSelector<PlaybackBloc, PlaybackState, Object?>(
+      selector: (s) => (
+        s.playbackList,
+        s.shuffledList,
+        s.playNextQueue,
+        s.isShuffled,
+        s.song?.path,
+        s.currentIndex,
+        s.anchorPath,
+      ),
+      builder: (context, _) {
+        final queue = context.read<PlaybackBloc>().state.queue; // once
         final songs = queue.songs;
         final current = queue.currentIndex;
         final upcoming = songs.length - current - 1;
@@ -160,7 +171,10 @@ class _UpNextTile extends StatelessWidget {
               Container(
                 foregroundDecoration: isCurrent
                     ? BoxDecoration(
-                        border: Border.all(color: colorScheme.primary, width: 2),
+                        border: Border.all(
+                          color: colorScheme.primary,
+                          width: 2,
+                        ),
                         borderRadius: BorderRadius.circular(2),
                       )
                     : null,
@@ -178,7 +192,9 @@ class _UpNextTile extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.bodyMedium?.copyWith(
-                  color: isCurrent ? colorScheme.primary : colorScheme.onSurface,
+                  color: isCurrent
+                      ? colorScheme.primary
+                      : colorScheme.onSurface,
                 ),
               ),
               const SizedBox(height: 6),
@@ -214,7 +230,7 @@ class _Artwork extends StatelessWidget {
     final placeholder = Center(
       child: Image(
         image: ResizeImage(
-          const AssetImage(MusicIcons.musicIcon),
+          const AssetImage(MusicIcons.artworkIcon),
           width: cacheSize,
           height: cacheSize,
           policy: ResizeImagePolicy.fit,
@@ -240,20 +256,4 @@ class _Artwork extends StatelessWidget {
       errorBuilder: (_, _, _) => placeholder,
     );
   }
-}
-
-/// The queue compared by path, title, artist and artwork plus the current
-/// position, so the list only rebuilds when what it shows changes (not on
-/// every state emission).
-class _Queue extends Equatable {
-  const _Queue(this.songs, this.currentIndex);
-
-  final List<SongModel> songs;
-  final int currentIndex;
-
-  @override
-  List<Object?> get props => [
-    currentIndex,
-    for (final s in songs) (s.path, s.title, s.artist, s.artworkBase64),
-  ];
 }

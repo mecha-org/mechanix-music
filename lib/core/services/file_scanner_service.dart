@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
+import 'package:image/image.dart' as img;
 import 'package:mechanix_music/core/utils/app_logger.dart';
 import 'package:mechanix_music/core/utils/constants.dart';
 import 'package:mechanix_music/features/music/data/models/song_model.dart';
@@ -10,6 +12,18 @@ import 'package:uuid/uuid.dart';
 
 class FileScannerService {
   FileScannerService();
+
+  /// Longest side of the stored cover thumbnails, in pixels. Enough for the
+  /// largest place a cover is shown (the vinyl label, ~120 px at 2x).
+  static const int thumbnailSize = 256;
+
+  /// JPEG quality of the thumbnails (~15–30 KB each).
+  static const int thumbnailQuality = 80;
+
+  /// Thumbnails made during this scanner's lifetime, by a key of the
+  /// embedded picture, so the songs of one album share one thumbnail (one
+  /// decode, one string).
+  final Map<String, String?> _thumbnails = {};
 
   /// Scans [dirPath] (non-recursive) for audio files.
   Future<Map<String, SongModel>> scanDirectory(String dirPath) async {
@@ -90,12 +104,18 @@ class FileScannerService {
           ? _formatDuration(meta!.duration!.inSeconds)
           : null;
 
-      // Artwork: the embedded cover, kept as base64 (stored in the index).
+      // Artwork: a small thumbnail of the embedded cover, as base64 (stored
+      // in the index). Never the full-size picture, which can be megabytes.
       String? artworkBase64;
       final pictures = meta?.pictures;
       if (pictures != null && pictures.isNotEmpty) {
         final bytes = pictures.first.bytes;
-        if (bytes.isNotEmpty) artworkBase64 = base64Encode(bytes);
+        if (bytes.isNotEmpty) {
+          final key = '$artist|$album|${bytes.length}';
+          artworkBase64 = _thumbnails.containsKey(key)
+              ? _thumbnails[key]
+              : _thumbnails[key] = makeThumbnail(bytes);
+        }
       }
 
       return SongModel(
@@ -114,6 +134,27 @@ class FileScannerService {
       AppLogger.e(
         '[FileScannerService] Failed to build model for "$filePath": $e',
       );
+      return null;
+    }
+  }
+
+  /// [bytes] (an encoded image) downscaled to fit [thumbnailSize] and
+  /// encoded as base64 JPEG, or null when it cannot be decoded.
+  static String? makeThumbnail(List<int> bytes) {
+    try {
+      final image = img.decodeImage(Uint8List.fromList(bytes));
+      if (image == null) return null;
+      final small = image.width <= thumbnailSize && image.height <= thumbnailSize
+          ? image
+          : img.copyResize(
+              image,
+              width: image.width >= image.height ? thumbnailSize : null,
+              height: image.height > image.width ? thumbnailSize : null,
+              interpolation: img.Interpolation.average,
+            );
+      return base64Encode(img.encodeJpg(small, quality: thumbnailQuality));
+    } catch (e) {
+      AppLogger.i('[FileScannerService] Unreadable cover art: $e');
       return null;
     }
   }

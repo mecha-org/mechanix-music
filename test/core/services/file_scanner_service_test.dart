@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
 import 'package:mechanix_music/core/services/file_scanner_service.dart';
 
 void main() {
@@ -65,6 +67,29 @@ void main() {
       for (final MapEntry(:key, :value) in songs.entries) {
         expect(key, value.id);
       }
+    });
+  });
+
+  group('makeThumbnail', () {
+    test('downscales a big cover to a small JPEG, keeping its shape', () {
+      final cover = img.Image(width: 1200, height: 600);
+      final thumb = FileScannerService.makeThumbnail(img.encodePng(cover));
+
+      final decoded = img.decodeJpg(base64Decode(thumb!))!;
+      expect(decoded.width, FileScannerService.thumbnailSize);
+      expect(decoded.height, FileScannerService.thumbnailSize ~/ 2);
+    });
+
+    test('keeps a small cover at its size', () {
+      final cover = img.Image(width: 100, height: 120);
+      final thumb = FileScannerService.makeThumbnail(img.encodePng(cover));
+
+      final decoded = img.decodeJpg(base64Decode(thumb!))!;
+      expect((decoded.width, decoded.height), (100, 120));
+    });
+
+    test('returns null for bytes that are not an image', () {
+      expect(FileScannerService.makeThumbnail([1, 2, 3, 4]), isNull);
     });
   });
 }
