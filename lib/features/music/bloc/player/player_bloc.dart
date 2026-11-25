@@ -39,6 +39,11 @@ class PlaybackBloc extends Bloc<PlaybackEvent, PlaybackState> {
     on<PlaybackPause>(_onPause);
     on<PlaybackResume>(_onResume);
     on<PlaybackSeek>(_onSeek);
+    // Sequential, so quick repeats add up.
+    on<PlaybackSeekBy>(
+      _onSeekBy,
+      transformer: (events, mapper) => events.asyncExpand(mapper),
+    );
     on<PlaybackStop>(_onStop);
     on<PlaybackPlayNext>(_onPlayNext);
     on<PlaybackPlayPrevious>(_onPlayPrevious);
@@ -485,9 +490,33 @@ class PlaybackBloc extends Bloc<PlaybackEvent, PlaybackState> {
   }
 
   Future<void> _onSeek(PlaybackSeek event, Emitter<PlaybackState> emit) async {
+    if (state.song == null) return;
+    await _seekTo(event.position, emit);
+  }
+
+  Future<void> _onSeekBy(
+    PlaybackSeekBy event,
+    Emitter<PlaybackState> emit,
+  ) async {
+    final length = state.songDuration;
+    if (state.song == null || length <= Duration.zero) return;
+
+    final Duration current;
     try {
-      if (state.song == null) return;
-      await _repo.seek(event.position);
+      current = await _repo.getCurrentPosition() ?? Duration.zero;
+    } catch (e) {
+      AppLogger.e('Error reading the position: $e');
+      return;
+    }
+    var target = current + event.offset;
+    if (target < Duration.zero) target = Duration.zero;
+    if (target > length) target = length;
+    await _seekTo(target, emit);
+  }
+
+  Future<void> _seekTo(Duration position, Emitter<PlaybackState> emit) async {
+    try {
+      await _repo.seek(position);
     } catch (e) {
       AppLogger.e('Error during seek: $e');
 

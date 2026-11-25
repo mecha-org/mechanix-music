@@ -39,6 +39,15 @@ class PlaybackSeek extends PlaybackEvent {
   List<Object?> get props => [position];
 }
 
+/// Seeks [offset] from the current position, within the song.
+class PlaybackSeekBy extends PlaybackEvent {
+  final Duration offset;
+  const PlaybackSeekBy(this.offset);
+
+  @override
+  List<Object?> get props => [offset];
+}
+
 class PlaybackStop extends PlaybackEvent {
   const PlaybackStop();
 }

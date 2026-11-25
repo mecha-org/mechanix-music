@@ -316,6 +316,73 @@ void main() {
     );
   });
 
+  group('PlaybackSeekBy', () {
+    const length = Duration(minutes: 3);
+    PlaybackState playing() => PlaybackState(
+      status: PlaybackStatus.playing,
+      song: list5[0],
+      songDuration: length,
+    );
+
+    void positionAt(Duration position) => when(
+      () => repo.getCurrentPosition(),
+    ).thenAnswer((_) async => position);
+
+    blocTest<PlaybackBloc, PlaybackState>(
+      'seeks from the current position',
+      setUp: () => positionAt(const Duration(seconds: 30)),
+      build: buildBloc,
+      seed: playing,
+      act: (bloc) => bloc.add(const PlaybackSeekBy(Duration(seconds: 10))),
+      verify: (_) =>
+          verify(() => repo.seek(const Duration(seconds: 40))).called(1),
+    );
+
+    blocTest<PlaybackBloc, PlaybackState>(
+      'stops at the start of the song',
+      setUp: () => positionAt(const Duration(seconds: 4)),
+      build: buildBloc,
+      seed: playing,
+      act: (bloc) => bloc.add(const PlaybackSeekBy(Duration(seconds: -10))),
+      verify: (_) => verify(() => repo.seek(Duration.zero)).called(1),
+    );
+
+    blocTest<PlaybackBloc, PlaybackState>(
+      'stops at the end of the song',
+      setUp: () => positionAt(const Duration(minutes: 2, seconds: 55)),
+      build: buildBloc,
+      seed: playing,
+      act: (bloc) => bloc.add(const PlaybackSeekBy(Duration(seconds: 10))),
+      verify: (_) => verify(() => repo.seek(length)).called(1),
+    );
+
+    blocTest<PlaybackBloc, PlaybackState>(
+      'quick repeats add up',
+      setUp: () {
+        var position = const Duration(seconds: 30);
+        when(() => repo.getCurrentPosition()).thenAnswer((_) async => position);
+        when(() => repo.seek(any())).thenAnswer((invocation) async {
+          position = invocation.positionalArguments.first as Duration;
+        });
+      },
+      build: buildBloc,
+      seed: playing,
+      act: (bloc) => bloc
+        ..add(const PlaybackSeekBy(Duration(seconds: 10)))
+        ..add(const PlaybackSeekBy(Duration(seconds: 10))),
+      verify: (_) =>
+          verify(() => repo.seek(const Duration(seconds: 50))).called(1),
+    );
+
+    blocTest<PlaybackBloc, PlaybackState>(
+      'does nothing while the length is not known yet',
+      build: buildBloc,
+      seed: () => PlaybackState(status: PlaybackStatus.loading, song: list5[0]),
+      act: (bloc) => bloc.add(const PlaybackSeekBy(Duration(seconds: 10))),
+      verify: (_) => verifyNever(() => repo.seek(any())),
+    );
+  });
+
   group('PlaybackStop', () {
     blocTest<PlaybackBloc, PlaybackState>(
       'resets to a stopped state on success',

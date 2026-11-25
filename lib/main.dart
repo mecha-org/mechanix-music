@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:mechanix_music/core/widgets/music_shortcuts.dart';
 import 'package:mechanix_music/l10n/music_localizations.dart';
 import 'package:mechanix_music/features/mpris/presentation/mpris_scope.dart';
 import 'package:mechanix_music/features/music/bloc/player/player_bloc.dart';
@@ -82,23 +83,31 @@ void main() {
 class MusicApp extends StatelessWidget {
   const MusicApp({super.key});
 
+  static final _navigatorKey = GlobalKey<NavigatorState>();
+
   @override
   Widget build(BuildContext context) {
-    return MechanixTheme(
-      builder: (context, theme, child) {
-        final darkTheme = theme.dark;
+    // Space, ←/→, Ctrl+←/→ and Esc on every screen.
+    return MusicShortcuts(
+      navigatorKey: _navigatorKey,
+      child: MechanixTheme(
+        builder: (context, theme, child) {
+          final darkTheme = theme.dark;
 
-        return MaterialApp(
-          debugShowCheckedModeBanner: false,
-          theme: darkTheme,
-          darkTheme: darkTheme,
-          themeMode: theme.mode,
-          locale: const Locale('en'),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          home: const MusicScreen(),
-        );
-      },
+          return MaterialApp(
+            navigatorKey: _navigatorKey,
+            shortcuts: MusicShortcuts.appShortcuts,
+            debugShowCheckedModeBanner: false,
+            theme: darkTheme,
+            darkTheme: darkTheme,
+            themeMode: theme.mode,
+            locale: const Locale('en'),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: const MusicScreen(),
+          );
+        },
+      ),
     );
   }
 }
