@@ -228,5 +228,12 @@ void main() {
 
       expect(repository.onSongComplete, same(stream));
     });
+
+    test('onSeekComplete forwards the player stream', () {
+      final stream = Stream<void>.value(null);
+      when(() => player.onSeekComplete).thenAnswer((_) => stream);
+
+      expect(repository.onSeekComplete, same(stream));
+    });
   });
 }

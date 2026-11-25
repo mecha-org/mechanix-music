@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:mechanix_music/l10n/music_localizations.dart';
+import 'package:mechanix_music/features/mpris/presentation/mpris_scope.dart';
 import 'package:mechanix_music/features/music/bloc/player/player_bloc.dart';
 import 'package:mechanix_music/features/music/bloc/song_bloc.dart';
 import 'package:mechanix_music/features/music/bloc/playlist/playlist_bloc.dart';
@@ -68,7 +71,9 @@ void main() {
             ),
           ),
         ],
-        child: const MusicApp(),
+        // Publishes the player on D-Bus (MPRIS) so the shell and tools
+        // like playerctl can show and control playback.
+        child: MprisScope(enabled: Platform.isLinux, child: const MusicApp()),
       ),
     ),
   );

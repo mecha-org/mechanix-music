@@ -2,7 +2,7 @@
 Type=Application
 Name=Mechanix Music
 Comment=Music player for Mechanix OS
-Exec=mechanix_music -s 1
+Exec=mechanix_music -s 1 -k
 Icon=org.mechanix.music
 Terminal=false
 Categories=AudioVideo;Audio;Player;

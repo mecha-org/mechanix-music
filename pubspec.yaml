@@ -52,6 +52,8 @@ dependencies:
       ref: feat/audioplayers  
   path: ^1.9.1
   bloc: ^9.2.1
+  # Media player on the session bus (MPRIS) for the shell and playerctl.
+  dbus: ">=0.7.12 <0.9.0"
   audio_metadata_reader: ^1.6.0
   file: ^7.0.1
   image: ^4.3.0
