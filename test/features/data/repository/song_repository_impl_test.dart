@@ -11,6 +11,7 @@ import 'package:mechanix_music/features/music/data/models/song_model.dart';
 import 'package:mechanix_music/features/music/data/repository/song_repository_impl.dart';
 import 'package:mechanix_music/features/music/data/services/favourites_store.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:path/path.dart' as p;
 
 import '../../../helpers/in_memory_song_index.dart';
 
@@ -92,6 +93,29 @@ void main() {
     title: title,
     artist: 'artist-$id',
     isExternal: isExternal,
+  );
+
+  /// Lets the mocked scanner build a song for any path: id = file name,
+  /// title = file name without the extension.
+  void scanAnyFile() {
+    when(() => scanner.buildSongModel(any())).thenAnswer((invocation) async {
+      final path = invocation.positionalArguments.first as String;
+      return makeSong(
+        p.basename(path),
+        path,
+        p.basenameWithoutExtension(path),
+      );
+    });
+  }
+
+  /// Completes when [repository] announces an upsert of [path].
+  Future<void> upsertOf(String path) => expectLater(
+    repository.onSongChanged,
+    emitsThrough(
+      isA<SongChange>()
+          .having((c) => c.type, 'type', SongChangeType.upsert)
+          .having((c) => c.song.path, 'path', path),
+    ),
   );
 
   group('getSongs', () {
@@ -366,6 +390,56 @@ void main() {
         expect(index.songs.values, isEmpty);
       },
     );
+  });
+
+  group('subfolders', () {
+    test('songs in subfolders are scanned, hidden ones are not', () async {
+      final top = '${tempMusicDir.path}/a.mp3';
+      final nested = '${tempMusicDir.path}/Artist/Album/b.mp3';
+      final hiddenFolder = '${tempMusicDir.path}/.trash/c.mp3';
+      final hiddenFile = '${tempMusicDir.path}/Artist/.d.mp3';
+      for (final path in [top, nested, hiddenFolder, hiddenFile]) {
+        await File(path).create(recursive: true);
+      }
+      scanAnyFile();
+
+      expect(await repository.syncInitialSongLibrary(), isTrue);
+
+      expect(index.songs.keys.toSet(), {top, nested});
+    });
+
+    test('songs in subfolders are not external', () async {
+      final nested = '${tempMusicDir.path}/Artist/b.mp3';
+      await File(nested).create(recursive: true);
+      scanAnyFile();
+
+      await repository.syncInitialSongLibrary();
+
+      final song = (await repository.getSongsByPaths([nested])).single;
+      expect(song.isExternal, isFalse);
+    });
+
+    test('songs of a deleted subfolder are removed', () async {
+      index.putAll([
+        makeSong('gone', '${tempMusicDir.path}/Old Album/a.mp3', 'Gone'),
+      ]);
+
+      expect(await repository.syncInitialSongLibrary(), isTrue);
+
+      expect(index.songs, isEmpty);
+    });
+
+    test('a symlinked folder is not followed', () async {
+      final song = '${tempMusicDir.path}/a.mp3';
+      await File(song).create();
+      // A loop back to the music folder.
+      await Link('${tempMusicDir.path}/loop').create(tempMusicDir.path);
+      scanAnyFile();
+
+      expect(await repository.syncInitialSongLibrary(), isTrue);
+
+      expect(index.songs.keys, [song]);
+    });
   });
 
   group('favourites', () {
@@ -669,6 +743,116 @@ void main() {
       expect(await favourites.paths(), [to]);
       final song = (await repository.getSongsByPaths([to])).single;
       expect(song.isFavourite, isTrue);
+    }, timeout: timeout);
+
+    test('picks up songs added to a subfolder', () async {
+      final folder = Directory('${tempMusicDir.path}/Artist')..createSync();
+      scanAnyFile();
+      expect(await repository.syncInitialSongLibrary(), isFalse);
+
+      final path = '${folder.path}/a.mp3';
+      final upserted = upsertOf(path);
+      await File(path).writeAsBytes([0, 1, 2]);
+      await upserted.timeout(const Duration(seconds: 5));
+
+      expect(index.songs.keys, [path]);
+    }, timeout: timeout);
+
+    test('picks up a folder moved in, and watches its subfolders', () async {
+      final outside = await Directory.systemTemp.createTemp('repo_test_out_');
+      addTearDown(() => outside.delete(recursive: true));
+      Directory('${outside.path}/Album/Disc 1').createSync(recursive: true);
+      File('${outside.path}/Album/Disc 1/a.mp3').writeAsBytesSync([0]);
+      scanAnyFile();
+      expect(await repository.syncInitialSongLibrary(), isFalse);
+
+      final first = '${tempMusicDir.path}/Album/Disc 1/a.mp3';
+      final firstUpserted = upsertOf(first);
+      await Directory(
+        '${outside.path}/Album',
+      ).rename('${tempMusicDir.path}/Album');
+      await firstUpserted.timeout(const Duration(seconds: 5));
+
+      final second = '${tempMusicDir.path}/Album/Disc 1/b.mp3';
+      final secondUpserted = upsertOf(second);
+      await File(second).writeAsBytes([0]);
+      await secondUpserted.timeout(const Duration(seconds: 5));
+
+      expect(index.songs.keys.toSet(), {first, second});
+    }, timeout: timeout);
+
+    test('a song moved to another folder keeps its id and favourite', () async {
+      final from = '${tempMusicDir.path}/A/song.mp3';
+      final to = '${tempMusicDir.path}/B/song.mp3';
+      await File(from).create(recursive: true);
+      Directory('${tempMusicDir.path}/B').createSync();
+      final stat = await File(from).stat();
+      index.putAll([
+        makeSong('s', from, 'Song')
+          ..mtime = stat.modified.millisecondsSinceEpoch
+          ..size = stat.size,
+      ]);
+      await favourites.setEntries([M3u8Entry(path: from)]);
+      scanAnyFile();
+      expect(await repository.syncInitialSongLibrary(), isFalse);
+
+      final moved = expectLater(
+        repository.onSongMoved,
+        emits((from: from, to: to)),
+      );
+      await File(from).rename(to);
+      await moved.timeout(const Duration(seconds: 5));
+
+      expect(index.songs.keys, [to]);
+      expect(index.songs[to]!.id, 's');
+      expect(await favourites.paths(), [to]);
+    }, timeout: timeout);
+
+    test('a renamed folder keeps its songs', () async {
+      final from = '${tempMusicDir.path}/Old/song.mp3';
+      final to = '${tempMusicDir.path}/New/song.mp3';
+      await File(from).create(recursive: true);
+      final stat = await File(from).stat();
+      index.putAll([
+        makeSong('s', from, 'Song')
+          ..mtime = stat.modified.millisecondsSinceEpoch
+          ..size = stat.size,
+      ]);
+      scanAnyFile();
+      expect(await repository.syncInitialSongLibrary(), isFalse);
+
+      final moved = expectLater(
+        repository.onSongMoved,
+        emits((from: from, to: to)),
+      );
+      await Directory(
+        '${tempMusicDir.path}/Old',
+      ).rename('${tempMusicDir.path}/New');
+      await moved.timeout(const Duration(seconds: 5));
+
+      expect(index.songs.keys, [to]);
+      expect(index.songs[to]!.id, 's');
+    }, timeout: timeout);
+
+    test('a deleted folder removes its songs', () async {
+      final path = '${tempMusicDir.path}/Album/song.mp3';
+      await File(path).create(recursive: true);
+      final stat = await File(path).stat();
+      index.putAll([
+        makeSong('s', path, 'Song')
+          ..mtime = stat.modified.millisecondsSinceEpoch
+          ..size = stat.size,
+      ]);
+      expect(await repository.syncInitialSongLibrary(), isFalse);
+
+      final removed = expectLater(
+        repository.onSongsRemoved,
+        emitsThrough([path]),
+      );
+      await Directory('${tempMusicDir.path}/Album').delete(recursive: true);
+      await removed.timeout(const Duration(seconds: 5));
+
+      expect(index.songs, isEmpty);
     }, timeout: timeout);
 
     test('other files are ignored', () async {

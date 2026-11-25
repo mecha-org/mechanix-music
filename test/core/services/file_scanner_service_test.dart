@@ -53,16 +53,20 @@ void main() {
       expect(await scanner.scanDirectory('${dir.path}/missing'), isEmpty);
     });
 
-    test('scans only audio files directly in the folder', () async {
+    test('scans audio files in the folder and its subfolders', () async {
       File('${dir.path}/a.mp3').writeAsBytesSync([0, 1, 2]);
       File('${dir.path}/b.FLAC').writeAsBytesSync([0, 1, 2]);
       File('${dir.path}/notes.txt').writeAsStringSync('not music');
-      Directory('${dir.path}/sub').createSync();
-      File('${dir.path}/sub/c.mp3').writeAsBytesSync([0, 1, 2]);
+      Directory('${dir.path}/Artist/Album').createSync(recursive: true);
+      File('${dir.path}/Artist/Album/c.mp3').writeAsBytesSync([0, 1, 2]);
+      // Hidden files and folders are skipped.
+      File('${dir.path}/.d.mp3').writeAsBytesSync([0, 1, 2]);
+      Directory('${dir.path}/.trash').createSync();
+      File('${dir.path}/.trash/e.mp3').writeAsBytesSync([0, 1, 2]);
 
       final songs = await scanner.scanDirectory(dir.path);
 
-      expect(songs.values.map((s) => s.title).toSet(), {'a', 'b'});
+      expect(songs.values.map((s) => s.title).toSet(), {'a', 'b', 'c'});
       // Keyed by song id.
       for (final MapEntry(:key, :value) in songs.entries) {
         expect(key, value.id);

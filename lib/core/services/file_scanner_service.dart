@@ -25,7 +25,8 @@ class FileScannerService {
   /// decode, one string).
   final Map<String, String?> _thumbnails = {};
 
-  /// Scans [dirPath] (non-recursive) for audio files.
+  /// Scans [dirPath] and its subfolders for audio files. Hidden files and
+  /// folders (name starting with `.`) are skipped.
   Future<Map<String, SongModel>> scanDirectory(String dirPath) async {
     final result = <String, SongModel>{};
 
@@ -34,9 +35,14 @@ class FileScannerService {
       final exists = await dir.exists();
       if (!exists) return result;
 
-      await for (final entity in dir.list(recursive: false)) {
+      await for (final entity in dir.list(
+        recursive: true,
+        followLinks: false,
+      )) {
         try {
           if (entity is! File) continue;
+          final relative = p.relative(entity.path, from: dirPath);
+          if (p.split(relative).any((part) => part.startsWith('.'))) continue;
 
           final ext = p.extension(entity.path).toLowerCase();
           if (!Constants.audioExt.contains(ext)) continue;
@@ -144,7 +150,8 @@ class FileScannerService {
     try {
       final image = img.decodeImage(Uint8List.fromList(bytes));
       if (image == null) return null;
-      final small = image.width <= thumbnailSize && image.height <= thumbnailSize
+      final small =
+          image.width <= thumbnailSize && image.height <= thumbnailSize
           ? image
           : img.copyResize(
               image,
