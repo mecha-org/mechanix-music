@@ -230,6 +230,15 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
   });
 
   @override
+  Future<void> deletePlaylist(String id) => _serialized(() async {
+    if (id == _favouritesId) return;
+    final file = _fileFor(id);
+    if (_isFavouritesFile(file) || !await file.exists()) return;
+    await file.delete();
+    AppLogger.i('[PlaylistRepository] Deleted playlist "$id"');
+  });
+
+  @override
   Future<void> setPlaylistSongs(String id, List<String> songPaths) =>
       _serialized(() async {
         final playlist = await _read(id);

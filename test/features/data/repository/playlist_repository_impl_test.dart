@@ -156,6 +156,24 @@ void main() {
     expect(renamed.songPaths, ['/a.mp3']);
   });
 
+  test('deletePlaylist removes the playlist and its file', () async {
+    final keep = await repository.createPlaylist('Keep');
+    final gone = await repository.createPlaylist('Gone');
+
+    await repository.deletePlaylist(gone.id);
+
+    expect(fileOf(gone.id).existsSync(), isFalse);
+    expect((await userPlaylists()).map((p) => p.id), [keep.id]);
+  });
+
+  test('deletePlaylist ignores an unknown id', () async {
+    await repository.createPlaylist('Keep');
+
+    await repository.deletePlaylist('nope');
+
+    expect((await userPlaylists()).single.name, 'Keep');
+  });
+
   test('setSongPlaylists adds to selected and removes from the rest', () async {
     final a = await repository.createPlaylist('A');
     final b = await repository.createPlaylist('B');
@@ -225,6 +243,15 @@ void main() {
         PlaylistModel.favouritesId,
       });
       expect(await favourites.paths(), ['/a.mp3']);
+    });
+
+    test('cannot be deleted', () async {
+      await favourites.setEntries([const M3u8Entry(path: '/a.mp3')]);
+
+      await repository.deletePlaylist(PlaylistModel.favouritesId);
+
+      expect(File(favourites.filePath).existsSync(), isTrue);
+      expect((await repository.getPlaylists()).first.songPaths, ['/a.mp3']);
     });
 
     test('cannot be renamed', () async {

@@ -14,6 +14,7 @@ export 'playlist_state.dart';
 ///
 /// Edits (rename, add, remove, reorder) update the state right away and are
 /// then saved, so lists do not flicker while the .m3u8 files are written.
+/// Delete waits for the file, so a failure can be shown.
 class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
   PlaylistBloc({required PlaylistRepository repository})
     : _repository = repository,
@@ -21,6 +22,7 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
     on<PlaylistsRequested>(_onRequested);
     on<PlaylistCreateRequested>(_onCreate);
     on<PlaylistRenamed>(_onRenamed);
+    on<PlaylistDeleted>(_onDeleted);
     on<PlaylistSongAdded>(_onSongAdded);
     on<PlaylistSongRemoved>(_onSongRemoved);
     on<PlaylistSongMoved>(_onSongMoved);
@@ -106,9 +108,7 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
 
     emit(
       state.copyWith(
-        playlists: [
-          for (final p in state.playlists) p.id == id ? updated : p,
-        ],
+        playlists: [for (final p in state.playlists) p.id == id ? updated : p],
       ),
     );
     try {
@@ -121,8 +121,10 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
 
   Future<void> _onRenamed(PlaylistRenamed event, Emitter<PlaylistState> emit) {
     final name = event.name.trim();
-    // Favourites (a fixed playlist) keeps its name.
-    if (name.isEmpty || (state.byId(event.playlistId)?.isFixed ?? true)) {
+    // Favourites (a fixed playlist) keeps its name; names are unique.
+    if (name.isEmpty ||
+        (state.byId(event.playlistId)?.isFixed ?? true) ||
+        state.isNameTaken(name, exceptId: event.playlistId)) {
       return Future.value();
     }
     return _update(
@@ -131,6 +133,34 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
       (p) => p.copyWith(name: name),
       (p) => _repository.renamePlaylist(p.id, p.name),
     );
+  }
+
+  Future<void> _onDeleted(
+    PlaylistDeleted event,
+    Emitter<PlaylistState> emit,
+  ) async {
+    final playlist = state.byId(event.playlistId);
+    // Favourites (a fixed playlist) cannot be deleted.
+    if (playlist == null || playlist.isFixed) {
+      event.done?.complete();
+      return;
+    }
+
+    // Removed from the state only once the file is gone: on failure the
+    // playlist stays and the UI shows an error.
+    try {
+      await _repository.deletePlaylist(playlist.id);
+    } catch (e) {
+      AppLogger.e('[PlaylistBloc] Deleting playlist ${playlist.id} failed: $e');
+      event.done?.completeError(e);
+      return;
+    }
+    emit(
+      state.copyWith(
+        playlists: state.playlists.where((p) => p.id != playlist.id).toList(),
+      ),
+    );
+    event.done?.complete();
   }
 
   Future<void> _onSongAdded(
@@ -160,18 +190,13 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
   Future<void> _onSongMoved(
     PlaylistSongMoved event,
     Emitter<PlaylistState> emit,
-  ) => _update(
-    event.playlistId,
-    emit,
-    (p) {
-      final paths = [...p.songPaths];
-      if (event.oldIndex < 0 || event.oldIndex >= paths.length) return p;
-      var newIndex = event.newIndex;
-      if (newIndex > event.oldIndex) newIndex -= 1;
-      final moved = paths.removeAt(event.oldIndex);
-      paths.insert(newIndex.clamp(0, paths.length), moved);
-      return p.copyWith(songPaths: paths);
-    },
-    (p) => _repository.setPlaylistSongs(p.id, p.songPaths),
-  );
+  ) => _update(event.playlistId, emit, (p) {
+    final paths = [...p.songPaths];
+    if (event.oldIndex < 0 || event.oldIndex >= paths.length) return p;
+    var newIndex = event.newIndex;
+    if (newIndex > event.oldIndex) newIndex -= 1;
+    final moved = paths.removeAt(event.oldIndex);
+    paths.insert(newIndex.clamp(0, paths.length), moved);
+    return p.copyWith(songPaths: paths);
+  }, (p) => _repository.setPlaylistSongs(p.id, p.songPaths));
 }

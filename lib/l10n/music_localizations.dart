@@ -466,6 +466,30 @@ abstract class AppLocalizations {
   /// **'Add tracks to {name}'**
   String addTracksTo(String name);
 
+  /// No description provided for @playlistNameTaken.
+  ///
+  /// In en, this message translates to:
+  /// **'A playlist named {name} already exists'**
+  String playlistNameTaken(String name);
+
+  /// No description provided for @delete.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get delete;
+
+  /// No description provided for @deletePlaylistQuestion.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete {name}?'**
+  String deletePlaylistQuestion(String name);
+
+  /// No description provided for @deletePlaylistFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to delete {name}'**
+  String deletePlaylistFailed(String name);
+
   /// No description provided for @searchHint.
   ///
   /// In en, this message translates to:

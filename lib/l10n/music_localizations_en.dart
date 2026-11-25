@@ -211,6 +211,24 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String playlistNameTaken(String name) {
+    return 'A playlist named $name already exists';
+  }
+
+  @override
+  String get delete => 'Delete';
+
+  @override
+  String deletePlaylistQuestion(String name) {
+    return 'Delete $name?';
+  }
+
+  @override
+  String deletePlaylistFailed(String name) {
+    return 'Failed to delete $name';
+  }
+
+  @override
   String get searchHint => 'Search tracks, artists or playlist';
 
   @override

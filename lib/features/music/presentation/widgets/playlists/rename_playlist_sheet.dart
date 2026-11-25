@@ -14,6 +14,8 @@ Future<void> showRenamePlaylistSheet(BuildContext context, Playlist playlist) {
     showDragHandle: true,
     builder: (_) => RenamePlaylistSheet(
       initialName: playlist.name,
+      isNameTaken: (name) =>
+          bloc.state.isNameTaken(name, exceptId: playlist.id),
       onSave: (name) => bloc.add(PlaylistRenamed(playlist.id, name)),
     ),
   );
@@ -24,10 +26,15 @@ class RenamePlaylistSheet extends StatefulWidget {
     super.key,
     required this.initialName,
     required this.onSave,
+    this.isNameTaken,
   });
 
   final String initialName;
   final ValueChanged<String> onSave;
+
+  /// Whether another playlist already has the name; saving it shows an
+  /// error instead.
+  final bool Function(String name)? isNameTaken;
 
   @override
   State<RenamePlaylistSheet> createState() => _RenamePlaylistSheetState();
@@ -38,6 +45,10 @@ class _RenamePlaylistSheetState extends State<RenamePlaylistSheet> {
     text: widget.initialName,
   );
 
+  /// A taken name the user tried to save. Its error shows while the field
+  /// still holds that name.
+  String? _takenName;
+
   @override
   void dispose() {
     _controller.dispose();
@@ -47,6 +58,10 @@ class _RenamePlaylistSheetState extends State<RenamePlaylistSheet> {
   void _save() {
     final name = _controller.text.trim();
     if (name.isEmpty) return;
+    if (widget.isNameTaken?.call(name) ?? false) {
+      setState(() => _takenName = name);
+      return;
+    }
     if (name != widget.initialName) widget.onSave(name);
     Navigator.of(context).pop();
   }
@@ -64,6 +79,7 @@ class _RenamePlaylistSheetState extends State<RenamePlaylistSheet> {
           valueListenable: _controller,
           builder: (context, value, _) {
             final isValid = value.text.trim().isNotEmpty;
+            final takenName = _takenName;
             return Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -123,6 +139,10 @@ class _RenamePlaylistSheetState extends State<RenamePlaylistSheet> {
                     style: theme.textTheme.titleLarge?.copyWith(
                       color: theme.colorScheme.onSurface,
                     ),
+                    errorText:
+                        takenName != null && value.text.trim() == takenName
+                        ? l10n.playlistNameTaken(takenName)
+                        : null,
                   ),
                 ),
               ],

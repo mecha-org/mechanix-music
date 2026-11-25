@@ -30,6 +30,7 @@ void main() {
     repository = MockPlaylistRepository();
     when(() => repository.onChanged).thenAnswer((_) => const Stream.empty());
     when(() => repository.renamePlaylist(any(), any())).thenAnswer((_) async {});
+    when(() => repository.deletePlaylist(any())).thenAnswer((_) async {});
     when(
       () => repository.setPlaylistSongs(any(), any()),
     ).thenAnswer((_) async {});
@@ -113,6 +114,79 @@ void main() {
     );
 
     blocTest<PlaylistBloc, PlaylistState>(
+      'delete deletes the playlist, then removes it and completes',
+      build: buildBloc,
+      seed: () => seeded,
+      act: (bloc) async {
+        final done = Completer<void>();
+        bloc.add(PlaylistDeleted('1', done: done));
+        await done.future;
+      },
+      expect: () => [const PlaylistState(isLoading: false, playlists: [])],
+      verify: (_) => verify(() => repository.deletePlaylist('1')).called(1),
+    );
+
+    blocTest<PlaylistBloc, PlaylistState>(
+      'Favourites cannot be deleted',
+      build: buildBloc,
+      seed: () => PlaylistState(
+        isLoading: false,
+        playlists: [
+          Playlist.fromModel(
+            PlaylistModel(
+              id: PlaylistModel.favouritesId,
+              name: 'Favourites',
+              createdAt: created,
+              isFixed: true,
+            ),
+          ),
+        ],
+      ),
+      act: (bloc) =>
+          bloc.add(const PlaylistDeleted(PlaylistModel.favouritesId)),
+      expect: () => const <PlaylistState>[],
+      verify: (_) => verifyNever(() => repository.deletePlaylist(any())),
+    );
+
+    blocTest<PlaylistBloc, PlaylistState>(
+      'delete keeps the playlist and reports the error when it fails',
+      setUp: () => when(
+        () => repository.deletePlaylist(any()),
+      ).thenThrow(Exception('read-only')),
+      build: buildBloc,
+      seed: () => seeded,
+      act: (bloc) async {
+        final done = Completer<void>();
+        bloc.add(PlaylistDeleted('1', done: done));
+        await expectLater(done.future, throwsA(isA<Exception>()));
+      },
+      expect: () => const <PlaylistState>[],
+      verify: (bloc) => expect(bloc.state.byId('1')?.name, 'Mix'),
+    );
+
+    blocTest<PlaylistBloc, PlaylistState>(
+      'rename ignores a name another playlist has (any case)',
+      build: buildBloc,
+      seed: () => PlaylistState(
+        isLoading: false,
+        playlists: [playlist('1', 'Mix'), playlist('2', 'Road trip')],
+      ),
+      act: (bloc) => bloc.add(const PlaylistRenamed('1', ' road TRIP ')),
+      expect: () => const <PlaylistState>[],
+      verify: (_) =>
+          verifyNever(() => repository.renamePlaylist(any(), any())),
+    );
+
+    blocTest<PlaylistBloc, PlaylistState>(
+      'rename can change only the case of its own name',
+      build: buildBloc,
+      seed: () => seeded,
+      act: (bloc) => bloc.add(const PlaylistRenamed('1', 'MIX')),
+      verify: (_) =>
+          verify(() => repository.renamePlaylist('1', 'MIX')).called(1),
+    );
+
+    blocTest<PlaylistBloc, PlaylistState>(
       'ignores an empty name',
       build: buildBloc,
       seed: () => seeded,
@@ -190,5 +264,22 @@ void main() {
         '/c.mp3',
       ]),
     );
+  });
+
+  group('isNameTaken', () {
+    final state = PlaylistState(
+      isLoading: false,
+      playlists: [playlist('1', 'Mix'), playlist('2', 'Road trip')],
+    );
+
+    test('matches other playlists, trimmed and ignoring case', () {
+      expect(state.isNameTaken(' ROAD trip '), isTrue);
+      expect(state.isNameTaken('Evening'), isFalse);
+    });
+
+    test('ignores the playlist being renamed', () {
+      expect(state.isNameTaken('mix', exceptId: '1'), isFalse);
+      expect(state.isNameTaken('mix', exceptId: '2'), isTrue);
+    });
   });
 }

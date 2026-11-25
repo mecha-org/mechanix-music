@@ -131,6 +131,32 @@
     }
   },
 
+  "playlistNameTaken": "A playlist named {name} already exists",
+  "@playlistNameTaken": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "delete": "Delete",
+  "deletePlaylistQuestion": "Delete {name}?",
+  "@deletePlaylistQuestion": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "deletePlaylistFailed": "Failed to delete {name}",
+  "@deletePlaylistFailed": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+
   "searchHint": "Search tracks, artists or playlist",
   "noTracksFound": "No Tracks Available",
   "recent": "Recent",

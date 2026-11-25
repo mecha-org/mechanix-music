@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -15,6 +16,7 @@ import 'package:mechanix_music/features/music/data/models/song_model.dart';
 import 'package:mechanix_music/features/music/data/repository/song_repository.dart';
 import 'package:mechanix_music/features/music/presentation/widgets/all_tracks/track_artwork.dart';
 import 'package:mechanix_music/features/music/presentation/widgets/music/music_mini_player.dart';
+import 'package:mechanix_music/features/music/presentation/widgets/playlists/delete_playlist_confirmation_sheet.dart';
 import 'package:mechanix_music/features/music/presentation/widgets/playlists/playlist_collage.dart';
 import 'package:mechanix_music/features/music/presentation/widgets/playlists/playlist_track_tile.dart';
 import 'package:mechanix_music/features/music/presentation/widgets/playlists/rename_playlist_sheet.dart';
@@ -224,8 +226,8 @@ class _Header extends StatelessWidget {
               ),
             ),
           ),
-          // Favourites is a fixed playlist: it cannot be renamed.
-          if (!playlist.isFixed)
+          // Favourites is a fixed playlist: it cannot be renamed or deleted.
+          if (!playlist.isFixed) ...[
             MechanixIconButton.standard(
               key: const ValueKey('rename_playlist_button'),
               type: IconButtonType.rounded,
@@ -237,9 +239,49 @@ class _Header extends StatelessWidget {
               ),
               onPressed: () => showRenamePlaylistSheet(context, playlist),
             ),
+            const SizedBox(width: 12),
+            MechanixIconButton.standard(
+              key: const ValueKey('delete_playlist_button'),
+              type: IconButtonType.rounded,
+              icon: Image.asset(
+                MusicIcons.delete,
+                color: theme.colorScheme.error,
+                width: 20,
+                height: 20,
+              ),
+              onPressed: () => _confirmDelete(context),
+            ),
+          ],
         ],
       ),
     );
+  }
+
+  /// Asks for confirmation and deletes the playlist: leaves the screen when
+  /// it is deleted, or stays and shows an error when deleting failed.
+  Future<void> _confirmDelete(BuildContext context) async {
+    final bloc = context.read<PlaylistBloc>();
+    final navigator = Navigator.of(context);
+    final l10n = AppLocalizations.of(context)!;
+    final confirmed = await showDeletePlaylistConfirmationSheet(
+      context,
+      playlist.name,
+    );
+    if (confirmed != true) return;
+
+    final done = Completer<void>();
+    bloc.add(PlaylistDeleted(playlist.id, done: done));
+    try {
+      await done.future;
+    } catch (_) {
+      if (!context.mounted) return;
+      MechanixSnackbar.text(
+        position: MechanixSnackbarPosition.top,
+        text: l10n.deletePlaylistFailed(playlist.name),
+      ).show(context);
+      return;
+    }
+    if (navigator.mounted) navigator.pop();
   }
 }
 

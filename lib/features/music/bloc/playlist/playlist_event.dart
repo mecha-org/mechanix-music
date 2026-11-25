@@ -33,6 +33,19 @@ final class PlaylistRenamed extends PlaylistEvent {
   List<Object?> get props => [playlistId, name];
 }
 
+/// Deletes a playlist. Favourites (fixed) cannot be deleted. [done]
+/// completes when the playlist is deleted, or with the error when deleting
+/// failed, so the UI can tell the user.
+final class PlaylistDeleted extends PlaylistEvent {
+  const PlaylistDeleted(this.playlistId, {this.done});
+
+  final String playlistId;
+  final Completer<void>? done;
+
+  @override
+  List<Object?> get props => [playlistId];
+}
+
 /// Appends a song to the end of a playlist.
 final class PlaylistSongAdded extends PlaylistEvent {
   const PlaylistSongAdded(this.playlistId, this.songPath);

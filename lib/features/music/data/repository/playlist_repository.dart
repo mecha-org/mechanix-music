@@ -25,6 +25,9 @@ abstract class PlaylistRepository {
   /// Renames the playlist with [id]. The Favourites playlist keeps its name.
   Future<void> renamePlaylist(String id, String name);
 
+  /// Deletes the playlist with [id] (its `.m3u8` file). Favourites is kept.
+  Future<void> deletePlaylist(String id);
+
   /// Replaces the songs of the playlist with [id] (in play order).
   Future<void> setPlaylistSongs(String id, List<String> songPaths);
 

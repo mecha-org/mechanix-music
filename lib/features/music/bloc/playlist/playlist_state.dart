@@ -16,6 +16,15 @@ class PlaylistState extends Equatable {
     return null;
   }
 
+  /// Whether another playlist than [exceptId] is called [name] (trimmed,
+  /// ignoring case). Includes Favourites.
+  bool isNameTaken(String name, {String? exceptId}) {
+    final wanted = name.trim().toLowerCase();
+    return playlists.any(
+      (p) => p.id != exceptId && p.name.trim().toLowerCase() == wanted,
+    );
+  }
+
   PlaylistState copyWith({bool? isLoading, List<Playlist>? playlists}) =>
       PlaylistState(
         isLoading: isLoading ?? this.isLoading,
