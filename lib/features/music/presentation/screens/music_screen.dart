@@ -1,15 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:mechanix_music/core/utils/enums.dart';
+import 'package:mechanix_music/core/utils/icons.dart';
+import 'package:mechanix_music/features/music/presentation/widgets/playlists/playlists_view.dart';
 import 'package:mechanix_music/features/music/bloc/player/player_bloc.dart';
 import 'package:mechanix_music/features/music/bloc/player/player_state.dart';
-import 'package:mechanix_music/l10n/music_localizations.dart';
-import 'package:mechanix_music/features/browse_music/presentation/screens/browse_music_screen.dart';
-import 'package:mechanix_music/features/browse_music/presentation/widgets/browse_music_top_bar.dart';
+import 'package:mechanix_music/features/music/presentation/screens/search_screen.dart';
+import 'package:mechanix_music/features/music/presentation/widgets/landing/landing_view.dart';
+import 'package:mechanix_music/features/music/presentation/widgets/music/audio_output_sheet.dart';
 import 'package:mechanix_music/features/music/presentation/widgets/music/music_bottom_bar.dart';
-import 'package:mechanix_music/features/music/presentation/widgets/music/tabs/play_tab.dart';
-import 'package:mechanix_music/features/music/presentation/widgets/music/tabs/search_tab.dart';
-import 'package:mechanix_music/features/music/presentation/widgets/music/tabs/track_tab.dart';
+import 'package:mechanix_music/features/music/presentation/widgets/all_tracks/all_tracks_view.dart';
+import 'package:mechanix_music/l10n/music_localizations.dart';
+import 'package:widgets/widgets.dart';
 
 class MusicScreen extends StatefulWidget {
   const MusicScreen({super.key});
@@ -19,28 +21,96 @@ class MusicScreen extends StatefulWidget {
 }
 
 class _MusicScreenState extends State<MusicScreen> {
-  int _currentIndex = 2; // default to track tab
+  MusicTab _currentTab = MusicTab.player;
 
-  final List<Widget> _tabs = const [
-    Center(child: PlayTab()),
-    Center(child: SearchTab()),
-    TrackTab(),
-    Center(child: BrowseMusicScreen()),
+  static const List<Widget> _tabs = [
+    NowPlayingLanding(),
+    AllTracksView(),
+    PlaylistsView(),
   ];
 
-  PreferredSizeWidget _buildAppBar(AppLocalizations l10n) {
-    return switch (_currentIndex) {
-      0 => AppBar(title: Text(l10n.nowPlaying)),
-      1 => AppBar(title: Text(l10n.search)),
-      2 => AppBar(title: Text(l10n.tracks)),
-      3 => AppBar(title: const BrowseMusicTopBar()),
-      _ => AppBar(title: Text(l10n.tracks)),
-    };
+  String _title(AppLocalizations l10n) => switch (_currentTab) {
+    MusicTab.player => l10n.appTitle,
+    MusicTab.allTracks => l10n.allTracks,
+    MusicTab.playlist => l10n.playlists,
+  };
+
+  PreferredSizeWidget _buildAppBar(
+    BuildContext context,
+    AppLocalizations l10n,
+  ) {
+    final theme = Theme.of(context);
+
+    final searchButton = MechanixIconButton.standard(
+      key: const ValueKey('music_search_button'),
+      type: IconButtonType.rounded,
+      size: IconButtonSize.small,
+      icon: ImageIcon(
+        const AssetImage(MusicIcons.searchIcon),
+        color: theme.colorScheme.onSurface,
+      ),
+      onPressed: () => Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => const SearchScreen())),
+    );
+
+    // All tracks uses the small app bar. Its folder button opens the file
+    // browser, which is where songs are imported into the library.
+    if (_currentTab == MusicTab.allTracks) {
+      return MechanixAppBar.small(
+        primary: false,
+        automaticallyImplyLeading: false,
+        backgroundColor: Colors.transparent,
+        title: Text(l10n.allTracks, key: const ValueKey('music_app_bar_title')),
+        titleTextStyle: theme.textTheme.headlineSmall!.copyWith(
+          color: theme.colorScheme.onSecondaryContainer,
+        ),
+        actions: [searchButton],
+      );
+    }
+
+    // Playlists: large title with only search.
+    if (_currentTab == MusicTab.playlist) {
+      return MechanixAppBar.largeIcon(
+        primary: false,
+        automaticallyImplyLeading: false,
+        backgroundColor: Colors.transparent,
+        title: Text(
+          _title(l10n).toUpperCase(),
+          key: const ValueKey('music_app_bar_title'),
+        ),
+        actions: [searchButton],
+      );
+    }
+
+    return MechanixAppBar.largeIcon(
+      primary: false,
+      automaticallyImplyLeading: false,
+      backgroundColor: Colors.transparent,
+      title: Text(
+        _title(l10n).toUpperCase(),
+        key: const ValueKey('music_app_bar_title'),
+      ),
+      actions: [
+        MechanixIconButton.standard(
+          key: const ValueKey('music_cast_button'),
+          type: IconButtonType.rounded,
+          size: IconButtonSize.small,
+          icon: ImageIcon(
+            const AssetImage(MusicIcons.audiocastIcon),
+            color: theme.colorScheme.onSurface,
+          ),
+          onPressed: () => showAudioOutputSheet(context),
+        ),
+        searchButton,
+      ],
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
 
     return BlocListener<PlaybackBloc, PlaybackState>(
       listenWhen: (previous, current) =>
@@ -48,27 +118,24 @@ class _MusicScreenState extends State<MusicScreen> {
           current.status == PlaybackStatus.failure,
       listener: (context, state) {
         if (state.errorType != null) {
-          final l10n = AppLocalizations.of(context)!;
           final message = switch (state.errorType!) {
             PlaybackErrorType.fileDeleted => l10n.errorPlaybackFileDeleted,
             PlaybackErrorType.unknown => l10n.errorPlaybackUnknown,
           };
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(message),
-              backgroundColor: Colors.red.shade900,
-              duration: const Duration(seconds: 1),
-            ),
-          );
+
+          MechanixSnackbar.text(
+            position: MechanixSnackbarPosition.top,
+            text: message,
+          ).show(context);
         }
       },
       child: Scaffold(
-        appBar: _buildAppBar(l10n),
-        extendBodyBehindAppBar: false,
-        body: IndexedStack(index: _currentIndex, children: _tabs),
+        backgroundColor: theme.colorScheme.surfaceContainerLowest,
+        appBar: _buildAppBar(context, l10n),
+        body: IndexedStack(index: _currentTab.index, children: _tabs),
         bottomNavigationBar: MusicBottomBar(
-          currentIndex: _currentIndex,
-          onTap: (index) => setState(() => _currentIndex = index),
+          currentTab: _currentTab,
+          onTabSelected: (tab) => setState(() => _currentTab = tab),
         ),
       ),
     );

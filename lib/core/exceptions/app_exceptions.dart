@@ -17,5 +17,5 @@ class PlaybackException implements Exception {
 }
 
 class PlaybackFileNotFoundException extends PlaybackException {
-  PlaybackFileNotFoundException([String message = 'Playback file not found.']);
+  PlaybackFileNotFoundException([super.message = 'Playback file not found.']);
 }

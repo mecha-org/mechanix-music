@@ -1,65 +1,65 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:mechanix_music/core/utils/colors.dart';
 import 'package:mechanix_music/core/utils/icons.dart';
-import 'package:mechanix_music/core/widgets/music_button.dart';
 import 'package:mechanix_music/features/music/bloc/player/player_bloc.dart';
 import 'package:mechanix_music/features/music/bloc/player/player_state.dart';
-import 'package:mechanix_music/features/music/data/models/song_model.dart';
 import 'package:mechanix_music/features/music/presentation/widgets/music/music_mini_player.dart';
+import 'package:mechanix_music/l10n/music_localizations.dart';
+import 'package:widgets/widgets.dart';
 
+/// Bottom-navigation tabs, in display order.
+enum MusicTab { player, allTracks, playlist }
+
+/// Bottom navigation (Player / All tracks / Playlist), with the mini player
+/// above it on tabs other than Player while a song is loaded.
 class MusicBottomBar extends StatelessWidget {
   const MusicBottomBar({
     super.key,
-    required this.currentIndex,
-    required this.onTap,
+    required this.currentTab,
+    required this.onTabSelected,
   });
 
-  final int currentIndex;
-  final ValueChanged<int> onTap;
-
-  static const List<String> _tabIcons = [
-    MusicIcons.playcircleIcon,
-    MusicIcons.searchIcon,
-    MusicIcons.tracksIcon,
-    MusicIcons.fileIcon,
-  ];
+  final MusicTab currentTab;
+  final ValueChanged<MusicTab> onTabSelected;
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        BlocSelector<PlaybackBloc, PlaybackState, SongModel?>(
-          selector: (state) => state.song,
-          builder: (context, currentSong) {
-            return currentSong != null
-                ? const MusicMiniPlayer()
-                : const SizedBox.shrink();
-          },
-        ),
-        SizedBox(
-          height: 60,
-          child: DecoratedBox(
-            decoration: const BoxDecoration(
-              color: MusicColors.bottomBarBg,
-              boxShadow: [],
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: List.generate(
-                  _tabIcons.length,
-                  (index) => MusicButton(
-                    iconPath: _tabIcons[index],
-                    isSelected: currentIndex == index,
-                    onTap: () => onTap(index),
-                  ),
-                ),
-              ),
-            ),
+        // The Player tab already shows the full player.
+        if (currentTab != MusicTab.player)
+          BlocSelector<PlaybackBloc, PlaybackState, bool>(
+            selector: (state) => state.song != null,
+            builder: (context, hasSong) {
+              return hasSong
+                  ? const MusicMiniPlayer()
+                  : const SizedBox.shrink();
+            },
           ),
+        MechanixNavigationBar(
+          key: const ValueKey('music_navigation_bar'),
+          selectedIndex: currentTab.index,
+          labelBehavior: NavigationDestinationLabelBehavior.alwaysHide,
+          height: 56,
+          onDestinationSelected: (index) =>
+              onTabSelected(MusicTab.values[index]),
+          destinations: [
+            MechanixNavigationDestination(
+              icon: const ImageIcon(AssetImage(MusicIcons.musicDisc)),
+              label: l10n.nowPlaying,
+            ),
+            MechanixNavigationDestination(
+              icon: const ImageIcon(AssetImage(MusicIcons.musicNote)),
+              label: l10n.allTracks,
+            ),
+            MechanixNavigationDestination(
+              icon: const ImageIcon(AssetImage(MusicIcons.playlist)),
+              label: l10n.playlist,
+            ),
+          ],
         ),
       ],
     );

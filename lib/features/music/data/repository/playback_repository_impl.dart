@@ -84,6 +84,9 @@ class PlaybackRepositoryImpl extends PlaybackRepository {
   Stream<void> get onSongComplete => _audioPlayer.onPlayerComplete;
 
   @override
+  Stream<void> get onSeekComplete => _audioPlayer.onSeekComplete;
+
+  @override
   Future<Duration?> getDuration() => _audioPlayer.getDuration();
 
   @override

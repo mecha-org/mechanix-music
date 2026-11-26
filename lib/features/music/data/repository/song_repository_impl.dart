@@ -1,5 +1,8 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
+import 'dart:math' as math;
+
 import 'package:mechanix_music/core/exceptions/app_exceptions.dart';
 import 'package:mechanix_music/core/services/file_scanner_service.dart';
 import 'package:mechanix_music/core/utils/app_logger.dart';
@@ -9,41 +12,48 @@ import 'package:mechanix_music/core/utils/helper.dart';
 import 'package:mechanix_music/features/music/data/models/song_change.dart';
 import 'package:mechanix_music/features/music/data/models/song_model.dart';
 import 'package:mechanix_music/features/music/data/repository/song_repository.dart';
-import 'package:mechanix_music/objectbox.g.dart';
+import 'package:mechanix_music/features/music/data/services/favourites_store.dart';
+import 'package:mechanix_music/features/music/data/services/song_index.dart';
+import 'package:mechanix_music/features/music/data/services/tantivy_song_index.dart';
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
-import 'dart:isolate';
 
+/// The song library: songs in the Tantivy index ([SongIndex]), favourites
+/// in an `.m3u8` playlist ([FavouritesStore]).
 class SongRepositoryImpl extends SongRepository {
   SongRepositoryImpl({
     FileScannerService? fileScannerService,
-    Store? store,
+    SongIndex? songIndex,
+    FavouritesStore? favouritesStore,
     String Function()? musicDirectoryProvider,
-    FutureOr<String> Function()? artworkCacheDirectoryProvider,
   }) : _fileScannerService = fileScannerService ?? FileScannerService(),
-       _musicDirectoryProvider = musicDirectoryProvider ?? getMusicDirectory,
-       _artworkCacheDirectoryProvider = artworkCacheDirectoryProvider,
-       _store = store {
-    if (store != null) {
-      _box = store.box<SongModel>();
-      try {
-        _dbDirectoryPath = store.directoryPath;
-      } catch (_) {
-        // Fallback if directoryPath is not accessible/supported in this state
-      }
-    }
+       // An injected scanner (tests) cannot be sent to another isolate.
+       _scanInIsolate = fileScannerService == null,
+       _index = songIndex ?? TantivySongIndex(),
+       _favourites = favouritesStore ?? FavouritesStore(),
+       _musicDirectoryProvider = musicDirectoryProvider ?? getMusicDirectory {
+    // The favourites are also edited as the Favourites playlist.
+    _favouritesSub = _favourites.changes.listen((_) => _onFavouritesChanged());
   }
 
   final FileScannerService _fileScannerService;
+  final bool _scanInIsolate;
+  final SongIndex _index;
+  final FavouritesStore _favourites;
   final String Function() _musicDirectoryProvider;
-  final FutureOr<String> Function()? _artworkCacheDirectoryProvider;
 
-  Store? _store;
-  Box<SongModel>? _box;
-  String? _dbDirectoryPath;
+  /// Favourite song paths, kept in sync via [FavouritesStore.changes].
+  Set<String>? _favouritePaths;
 
-  StreamSubscription<FileSystemEvent>? _watcherSubscription;
+  StreamSubscription<void>? _favouritesSub;
+
+  Future<void>? _opening;
+
+  /// One watcher per folder, by path (no recursive watch on Linux).
+  final Map<String, StreamSubscription<FileSystemEvent>> _watchers = {};
   final Map<String, Timer> _debounceTimers = {};
+
+  /// Removals held briefly to detect moves; see [_removeLater].
+  final Map<String, ({String path, Timer timer})> _pendingRemovals = {};
 
   // Stream that bloc will listen to for live changes
   final StreamController<SongChange> _onSongChanged =
@@ -52,98 +62,237 @@ class SongRepositoryImpl extends SongRepository {
   @override
   Stream<SongChange> get onSongChanged => _onSongChanged.stream;
 
-  Future<void> ensureStoreConnected() async {
-    if (_store != null && _store!.isClosed() == false) return;
+  final StreamController<List<String>> _onSongsRemoved =
+      StreamController<List<String>>.broadcast();
 
+  @override
+  Stream<List<String>> get onSongsRemoved => _onSongsRemoved.stream;
+
+  final StreamController<({String from, String to})> _onSongMoved =
+      StreamController<({String from, String to})>.broadcast();
+
+  @override
+  Stream<({String from, String to})> get onSongMoved => _onSongMoved.stream;
+
+  /// Opens the index and loads the favourites (once).
+  Future<void> ensureOpen() async {
+    final opening = _opening ??= _open();
     try {
-      await _initializeStore();
+      await opening;
     } catch (e) {
-      AppLogger.e('Failed to open ObjectBox store: $e');
-      if (e is FileSystemException && e.message.contains('lock failed')) {
-        throw AppAlreadyRunningException();
-      }
+      // Allow a retry on the next call.
+      if (identical(_opening, opening)) _opening = null;
+      AppLogger.e('[SongRepository] Opening the library failed: $e');
       rethrow;
     }
   }
 
-  Future<void> _initializeStore() async {
-    try {
-      final home = Platform.environment['HOME'];
-      final appDir = Directory('$home/${Constants.dbPath}');
-      final exists = await appDir.exists();
+  Future<void> _open() async {
+    await _index.open();
+    _favouritePaths = (await _favourites.paths()).toSet();
+  }
 
-      if (!exists) {
-        await appDir.create(recursive: true);
+  /// Whether [path] is under the music folder and not hidden. Other songs
+  /// count as external.
+  bool _isInMusicDir(String path) {
+    final musicDir = _musicDirectoryProvider();
+    if (!p.isWithin(musicDir, path)) return false;
+    return !p.split(p.relative(path, from: musicDir)).any(_isHidden);
+  }
+
+  static bool _isHidden(String name) => name.startsWith('.');
+
+  /// Whether [path] is an audio file the scan would pick up.
+  bool _isScannedFile(String path) => isAudioFile(path) && _isInMusicDir(path);
+
+  /// Folders and audio files under [root], skipping hidden entries,
+  /// symlinked folders and unreadable folders. Each folder is yielded
+  /// before it is listed, so it can be watched first.
+  Stream<FileSystemEntity> _walk(String root) async* {
+    final pending = [Directory(root)];
+    while (pending.isNotEmpty) {
+      final dir = pending.removeLast();
+      yield dir;
+
+      final List<FileSystemEntity> entities;
+      try {
+        entities = await dir.list(followLinks: false).toList();
+      } on FileSystemException catch (e) {
+        AppLogger.e('[SongRepository] Skipping unreadable folder: $e');
+        continue;
       }
-
-      _store = openStore(directory: appDir.path);
-      _box = _store!.box<SongModel>();
-      _dbDirectoryPath = appDir.path;
-
-      AppLogger.i('[SongRepository] ObjectBox store opened at ${appDir.path}');
-    } catch (e) {
-      AppLogger.e('Failed to initialize ObjectBox store: $e');
-      rethrow;
+      for (final entity in entities) {
+        if (_isHidden(p.basename(entity.path))) continue;
+        if (entity is Directory) {
+          pending.add(entity);
+        } else if (isAudioFile(entity.path)) {
+          if (entity is File) {
+            yield entity;
+          } else if (await FileSystemEntity.isFile(entity.path)) {
+            yield File(entity.path); // a symlink to an audio file
+          }
+        }
+      }
     }
   }
 
-  void closeStore() {
-    _watcherSubscription?.cancel();
-    _watcherSubscription = null;
+  /// Fills in the fields that are not stored in the index.
+  SongModel _decorate(SongModel song) => song
+    ..isFavourite = _favouritePaths?.contains(song.path) ?? false
+    ..isExternal = !_isInMusicDir(song.path);
+
+  List<SongModel> _decorateAll(List<SongModel> songs) =>
+      songs.map(_decorate).toList();
+
+  /// Stamps [song] with the current mtime/size of its file.
+  Future<SongModel> _withFileStat(SongModel song) async {
+    final stat = await File(song.path).stat();
+    if (stat.type != FileSystemEntityType.notFound) {
+      song.mtime = stat.modified.millisecondsSinceEpoch;
+      song.size = stat.size;
+    }
+    song.lastScannedAt = DateTime.now().toUtc();
+    return song;
+  }
+
+  /// Refreshes favourite flags and announces the songs that changed.
+  Future<void> _onFavouritesChanged() async {
+    final previous = _favouritePaths;
+    if (previous == null) return; // not loaded yet: read when opening
+    final current = (await _favourites.paths()).toSet();
+    final changed = previous
+        .difference(current)
+        .union(current.difference(previous));
+    _favouritePaths = current;
+    if (changed.isEmpty || _onSongChanged.isClosed) return;
+
+    try {
+      for (final song in await _index.getByPaths(changed.toList())) {
+        _onSongChanged.add(
+          SongChange(type: SongChangeType.upsert, song: _decorate(song)),
+        );
+      }
+    } catch (e) {
+      AppLogger.e('[SongRepository] Refreshing favourites failed: $e');
+    }
+  }
+
+  /// Stops watching the music folder and closes the index.
+  Future<void> close() async {
+    await _favouritesSub?.cancel();
+    _favouritesSub = null;
+    await _stopWatchers();
 
     for (final timer in _debounceTimers.values) {
       timer.cancel();
     }
     _debounceTimers.clear();
+    for (final pending in _pendingRemovals.values) {
+      pending.timer.cancel();
+    }
+    _pendingRemovals.clear();
 
-    _onSongChanged.close();
-
-    _store?.close();
-    _store = null;
-    _box = null;
+    await _onSongChanged.close();
+    await _onSongsRemoved.close();
+    await _onSongMoved.close();
+    await _index.close();
+    _opening = null;
+    _favouritePaths = null;
   }
 
   @override
   Future<bool> syncInitialSongLibrary() async {
     try {
-      await ensureStoreConnected();
+      await ensureOpen();
       final musicDir = _musicDirectoryProvider();
+      final stored = {
+        for (final state in await _index.getScanStates()) state.path: state,
+      };
 
-      String artworkCacheDirPath;
-      final provider = _artworkCacheDirectoryProvider;
-      if (provider != null) {
-        artworkCacheDirPath = await provider();
-      } else {
-        final appSupportDir = await getApplicationSupportDirectory();
-        artworkCacheDirPath = Directory('${appSupportDir.path}/artworks').path;
+      // 1. Compare files on disk with the index (mtime + size).
+      final folders = <String>[];
+      final diskPaths = <String>{};
+      final newOrModified = <String>[];
+      final dir = Directory(musicDir);
+      if (await dir.exists()) {
+        await for (final entity in _walk(musicDir)) {
+          if (entity is Directory) {
+            folders.add(entity.path);
+            continue;
+          }
+          final path = entity.path;
+          diskPaths.add(path);
+
+          final state = stored[path];
+          if (state == null) {
+            newOrModified.add(path);
+            continue;
+          }
+          final stat = await entity.stat();
+          if (stat.modified.millisecondsSinceEpoch != state.mtime ||
+              stat.size != state.size) {
+            newOrModified.add(path);
+          }
+        }
       }
 
-      final dbPath = _dbDirectoryPath ?? _store!.directoryPath;
-      final args = _SyncIsolateArgs(
-        dbDirectoryPath: dbPath,
-        musicDir: musicDir,
-        artworkCacheDirPath: artworkCacheDirPath,
-      );
+      // 2. Drop songs whose file is gone.
+      final toRemove = <String>[];
+      for (final path in stored.keys) {
+        if (_isInMusicDir(path)) {
+          if (!diskPaths.contains(path)) toRemove.add(path);
+          continue;
+        }
+        try {
+          if (!await File(path).exists()) toRemove.add(path);
+        } catch (e) {
+          AppLogger.e('Error checking existence of custom song $path: $e');
+          toRemove.add(path);
+        }
+      }
 
-      final isTest = Platform.environment.containsKey(
-        'FLUTTER_TEST',
-      ); // for Unit test only.
-      final changesDetected = isTest
-          ? await _syncInitialSongLibraryIsolate(
-              args,
-              store: _store,
-              box: _box,
-              scanner: _fileScannerService,
-            )
-          : await Isolate.run<bool>(() => _syncInitialSongLibraryIsolate(args));
+      if (toRemove.isEmpty && newOrModified.isEmpty) {
+        AppLogger.i('[SongRepository] Library is up to date for $musicDir');
+        _startWatcher(folders);
+        return false;
+      }
+
+      // 3. Drop the songs that are gone.
+      await _index.delete(toRemove);
+      if (toRemove.isNotEmpty && !_onSongsRemoved.isClosed) {
+        _onSongsRemoved.add(toRemove);
+      }
+
+      // 4. Read tags off the UI isolate and save in batches.
+      var updatedCount = 0;
+      for (
+        var start = 0;
+        start < newOrModified.length;
+        start += Constants.scanBatchSize
+      ) {
+        final batch = newOrModified.sublist(
+          start,
+          math.min(start + Constants.scanBatchSize, newOrModified.length),
+        );
+        final previous = {
+          for (final song in await _index.getByPaths(batch)) song.path: song,
+        };
+        final updated = <SongModel>[];
+        for (final song in await _scan(batch)) {
+          // Keep the id stable across rescans.
+          if (previous[song.path] case final old?) song.id = old.id;
+          updated.add(await _withFileStat(song));
+        }
+        await _index.upsert(updated);
+        updatedCount += updated.length;
+      }
 
       AppLogger.i(
-        '[SongRepository] Sync initial library completed (changesDetected: $changesDetected) for '
-        '$musicDir',
+        '[SongRepository] Sync completed for $musicDir: '
+        '$updatedCount added/updated, ${toRemove.length} removed',
       );
-
-      _startWatcher();
-      return changesDetected;
+      _startWatcher(folders);
+      return true;
     } on AppAlreadyRunningException catch (_) {
       rethrow;
     } catch (e) {
@@ -152,51 +301,65 @@ class SongRepositoryImpl extends SongRepository {
     }
   }
 
+  /// Builds song models for [paths], skipping files without a model.
+  Future<List<SongModel>> _scan(List<String> paths) async {
+    if (paths.isEmpty) return [];
+    if (!_scanInIsolate) {
+      return [
+        for (final path in paths)
+          if (await _fileScannerService.buildSongModel(path) case final song?)
+            song,
+      ];
+    }
+
+    final scanned = await _scanInBackground(paths);
+    return scanned.map(SongModel.fromJson).toList();
+  }
+
+  /// Reads the tags of [paths] on another isolate (static: captures
+  /// nothing).
+  static Future<List<Map<String, Object?>>> _scanInBackground(
+    List<String> paths,
+  ) => Isolate.run(() async {
+    final scanner = FileScannerService();
+    return [
+      for (final path in paths)
+        if (await scanner.buildSongModel(path) case final song?) song.toJson(),
+    ];
+  });
+
   @override
   Future<List<SongModel>> getSongs({
     required int offset,
     required int limit,
   }) async {
-    await ensureStoreConnected();
-
-    final query = _box!.query().order(SongModel_.title).build()
-      ..offset = offset
-      ..limit = limit;
-
-    try {
-      return query.find().toList();
-    } finally {
-      query.close();
-    }
+    await ensureOpen();
+    return _decorateAll(await _index.getPage(offset: offset, limit: limit));
   }
 
   @override
   Future<int> getSongCount() async {
-    await ensureStoreConnected();
-    return _box!.count();
+    await ensureOpen();
+    return _index.count();
   }
 
   @override
   Future<void> addSongsByPaths(List<String> paths) async {
     if (paths.isEmpty) return;
-    await ensureStoreConnected();
+    await ensureOpen();
 
-    // Single bulk query — ObjectBox checks all paths in one index scan.
-    final existingPaths = _box!
-        .query(SongModel_.path.oneOf(paths))
-        .build()
-        .find()
-        .map((s) => s.path)
-        .toSet();
-
-    final newPaths = paths.where((p) => !existingPaths.contains(p)).toList();
+    final unique = paths.toSet().toList();
+    final existing = {
+      for (final song in await _index.getByPaths(unique)) song.path,
+    };
+    final newPaths = unique.where((p) => !existing.contains(p)).toList();
 
     AppLogger.i(
-      '[SongRepository] ${existingPaths.length} already in library, '
+      '[SongRepository] ${existing.length} already in library, '
       '${newPaths.length} to import',
     );
 
-    final musicDir = _musicDirectoryProvider();
+    final added = <SongModel>[];
     for (final path in newPaths) {
       try {
         final song = await _fileScannerService.buildSongModel(path);
@@ -204,82 +367,356 @@ class SongRepositoryImpl extends SongRepository {
           AppLogger.i('[SongRepository] Could not build model for: $path');
           continue;
         }
-
-        song.isExternal = !p.isWithin(musicDir, path);
-
-        _box!.put(song);
-        AppLogger.i('[SongRepository] Added to library: ${song.title}');
-        _onSongChanged.add(SongChange(type: SongChangeType.upsert, song: song));
+        added.add(_decorate(await _withFileStat(song)));
       } catch (e) {
         AppLogger.e('[SongRepository] addSongsByPaths failed for $path: $e');
       }
+    }
+
+    await _index.upsert(added);
+    for (final song in added) {
+      AppLogger.i('[SongRepository] Added to library: ${song.title}');
+      _onSongChanged.add(SongChange(type: SongChangeType.upsert, song: song));
     }
   }
 
   @override
   Future<void> deleteSongByPath(String path) async {
-    await ensureStoreConnected();
-    final existing = _box!
-        .query(SongModel_.path.equals(path))
-        .build()
-        .findFirst();
-
-    if (existing != null) {
-      _box!.remove(existing.obxId);
+    await ensureOpen();
+    if (await _removeSongs([path])) {
       AppLogger.i('[SongRepository] Deleted song by path: $path');
-      _onSongChanged.add(
-        SongChange(type: SongChangeType.delete, song: existing),
-      );
     }
   }
 
+  /// Removes and announces the songs at [paths]; true if any was removed.
+  Future<bool> _removeSongs(List<String> paths) async {
+    if (paths.isEmpty) return false;
+    final songs = await _index.getByPaths(paths);
+    if (songs.isEmpty) return false;
+
+    final removed = [for (final song in songs) song.path];
+    await _index.delete(removed);
+    if (!_onSongsRemoved.isClosed) _onSongsRemoved.add(removed);
+    if (!_onSongChanged.isClosed) {
+      for (final song in songs) {
+        _onSongChanged.add(
+          SongChange(type: SongChangeType.delete, song: _decorate(song)),
+        );
+      }
+    }
+    return true;
+  }
+
+  @override
+  Future<void> setFavourite(String path, bool isFavourite) async {
+    await ensureOpen();
+    final found = await _index.getByPaths([path]);
+    if (found.isEmpty) return;
+    final song = _decorate(found.first);
+    if (song.isFavourite == isFavourite) return;
+
+    await _favourites.set(song, isFavourite);
+    if (isFavourite) {
+      _favouritePaths?.add(path);
+    } else {
+      _favouritePaths?.remove(path);
+    }
+    song.isFavourite = isFavourite;
+    AppLogger.i('[SongRepository] Favourite=$isFavourite for: $path');
+    _onSongChanged.add(SongChange(type: SongChangeType.upsert, song: song));
+  }
+
+  @override
+  Future<List<SongModel>> getSongsByPaths(List<String> paths) async {
+    if (paths.isEmpty) return [];
+    await ensureOpen();
+    return _decorateAll(await _index.getByPaths(paths));
+  }
+
+  @override
+  Future<List<SongModel>> getFavouriteSongs() async {
+    await ensureOpen();
+    return getSongsByPaths(await _favourites.paths());
+  }
+
+  @override
+  Future<List<SongModel>> searchSongs(
+    String query, {
+    int limit = Constants.searchResultLimit,
+  }) async {
+    if (query.trim().isEmpty) return [];
+    await ensureOpen();
+    try {
+      return _decorateAll(await _index.search(query, limit: limit));
+    } catch (e) {
+      AppLogger.e('[SongRepository] searchSongs failed ($query): $e');
+      return [];
+    }
+  }
+
+  @override
+  Future<List<AlbumSummary>> getAlbums() async {
+    await ensureOpen();
+    return _index.getAlbums();
+  }
+
+  @override
+  Future<List<SongModel>> getAlbumSongs(String artist, String album) async {
+    await ensureOpen();
+    return _decorateAll(await _index.getAlbumSongs(artist, album));
+  }
+
   // ── Watcher ──────────────────────────────────────────────────────────────
+  //
+  // One watcher per folder (no recursive watch on Linux). A move between
+  // folders arrives as delete + create, so a removal is held briefly and a
+  // same-named arrival is treated as a move.
 
-  void _startWatcher() {
-    _watcherSubscription?.cancel();
-    _watcherSubscription = null;
+  /// Watches [folders] (music folder first).
+  void _startWatcher(List<String> folders) {
+    unawaited(_stopWatchers());
 
-    final musicDir = _musicDirectoryProvider();
-    final dir = Directory(musicDir);
-    if (!dir.existsSync()) {
+    if (folders.isEmpty) {
       AppLogger.e(
-        '[FileWatcher] Music directory does not exist: $musicDir. Skipping watcher.',
+        '[FileWatcher] Music directory does not exist: '
+        '${_musicDirectoryProvider()}. Skipping watcher.',
       );
       return;
     }
+    folders.forEach(_watchFolder);
+    AppLogger.i(
+      '[FileWatcher] Watching ${folders.first} '
+      '(${folders.length - 1} subfolders)',
+    );
+  }
 
-    _watcherSubscription = dir.watch(recursive: false).listen((event) {
-      if (!isAudioFile(event.path)) return;
+  Future<void> _stopWatchers() async {
+    final subscriptions = _watchers.values.toList();
+    _watchers.clear();
+    await Future.wait(subscriptions.map((s) => s.cancel()));
+  }
 
+  void _watchFolder(String folder) {
+    if (_watchers.containsKey(folder)) return;
+    late final StreamSubscription<FileSystemEvent> subscription;
+    void forget() {
+      if (identical(_watchers[folder], subscription)) _watchers.remove(folder);
+    }
+
+    subscription = Directory(folder).watch().listen(
+      _onFileSystemEvent,
+      onError: (Object e) {
+        AppLogger.e('[FileWatcher] Watching $folder failed: $e');
+        forget();
+        unawaited(subscription.cancel());
+      },
+      // The folder itself was deleted.
+      onDone: forget,
+    );
+    _watchers[folder] = subscription;
+  }
+
+  /// Stops watching [root] and every folder under it.
+  void _unwatchTree(String root) {
+    final folders = _watchers.keys
+        .where((w) => p.equals(w, root) || p.isWithin(root, w))
+        .toList();
+    for (final folder in folders) {
+      unawaited(_watchers.remove(folder)!.cancel());
+    }
+  }
+
+  void _onFileSystemEvent(FileSystemEvent event) {
+    final path = event.path;
+    final destination = event is FileSystemMoveEvent
+        ? event.destination
+        : null;
+
+    if (event.isDirectory) {
       switch (event.type) {
         case FileSystemEvent.create:
-        case FileSystemEvent.modify:
-          _debounce(event.path, () => _onUpsert(event.path));
-
+          if (_isInMusicDir(path)) unawaited(_onFolderAppeared(path));
         case FileSystemEvent.delete:
-          // Cancel any pending debounce for this path and act immediately
-          _debounceTimers[event.path]?.cancel();
-          _debounceTimers.remove(event.path);
-          deleteSongByPath(event.path);
-
+          _onFolderDisappeared(path);
         case FileSystemEvent.move:
-          final moveEvent = event as FileSystemMoveEvent;
-          final destination = moveEvent.destination;
-          if (destination == null) return;
-
-          // Cancel pending debounce for old path and act immediately
-          _debounceTimers[moveEvent.path]?.cancel();
-          _debounceTimers.remove(moveEvent.path);
-          _onMove(oldPath: moveEvent.path, newPath: destination);
+          if (destination != null &&
+              _isInMusicDir(path) &&
+              _isInMusicDir(destination)) {
+            unawaited(_onFolderMoved(path, destination));
+          } else {
+            // Moved out of and/or into the scanned part (e.g. hidden name).
+            _onFolderDisappeared(path);
+            if (destination != null && _isInMusicDir(destination)) {
+              unawaited(_onFolderAppeared(destination));
+            }
+          }
       }
-    });
+      return;
+    }
 
-    AppLogger.i('[FileWatcher] Watching $musicDir');
+    switch (event.type) {
+      case FileSystemEvent.create:
+        if (_isScannedFile(path)) _onFileAppeared(path);
+      case FileSystemEvent.modify:
+        if (_isScannedFile(path)) _debounce(path, () => _onFileSettled(path));
+      case FileSystemEvent.delete:
+        if (_isScannedFile(path)) _onFileDisappeared(path);
+      case FileSystemEvent.move:
+        final fromScanned = _isScannedFile(path);
+        if (destination != null && _isScannedFile(destination)) {
+          if (fromScanned) {
+            _cancelDebounce(path);
+            unawaited(_onMove(oldPath: path, newPath: destination));
+          } else {
+            // e.g. a download renamed from `song.mp3.part` to `song.mp3`.
+            _debounce(destination, () => _onFileSettled(destination));
+          }
+        } else if (fromScanned) {
+          _onFileDisappeared(path);
+        }
+    }
+  }
+
+  void _onFileAppeared(String path) {
+    // Removed just before under the same name: moved here.
+    final oldPath = _takePendingRemoval(path, isDirectory: false);
+    if (oldPath != null && oldPath != path) {
+      _cancelDebounce(oldPath);
+      unawaited(_onMove(oldPath: oldPath, newPath: path));
+      return;
+    }
+    _debounce(path, () => _onFileSettled(path));
+  }
+
+  /// Indexes [path], or moves a same-named song that just disappeared.
+  void _onFileSettled(String path) {
+    final oldPath = _takePendingRemoval(path, isDirectory: false);
+    if (oldPath != null && oldPath != path) {
+      unawaited(_onMove(oldPath: oldPath, newPath: path));
+    } else {
+      unawaited(_onUpsert(path));
+    }
+  }
+
+  void _onFileDisappeared(String path) {
+    _cancelDebounce(path);
+    _removeLater(path, isDirectory: false);
+  }
+
+  /// Watches and indexes a new folder, or handles it as a move.
+  Future<void> _onFolderAppeared(String folder) async {
+    final oldFolder = _takePendingRemoval(folder, isDirectory: true);
+    if (oldFolder != null) return _onFolderMoved(oldFolder, folder);
+
+    await for (final entity in _walk(folder)) {
+      if (entity is Directory) {
+        _watchFolder(entity.path);
+      } else {
+        final path = entity.path;
+        _debounce(path, () => _onUpsert(path));
+      }
+    }
+  }
+
+  void _onFolderDisappeared(String folder) {
+    // Now: watchers follow the moved folder and report stale paths.
+    _unwatchTree(folder);
+    _removeLater(folder, isDirectory: true);
+  }
+
+  /// Moves the songs of folder [from] to [to], keeping ids and favourites.
+  Future<void> _onFolderMoved(String from, String to) async {
+    _unwatchTree(from);
+    try {
+      // New path → old path of every song that was under [from].
+      final moved = <String, String>{
+        for (final state in await _index.getScanStates())
+          if (p.isWithin(from, state.path))
+            p.join(to, p.relative(state.path, from: from)): state.path,
+      };
+
+      await for (final entity in _walk(to)) {
+        if (entity is Directory) {
+          _watchFolder(entity.path);
+          continue;
+        }
+        final path = entity.path;
+        final oldPath = moved.remove(path);
+        if (oldPath != null && oldPath != path) {
+          _cancelDebounce(oldPath);
+          await _onMove(oldPath: oldPath, newPath: path);
+        } else {
+          _debounce(path, () => _onUpsert(path));
+        }
+      }
+
+      final missing = moved.values.toList();
+      missing.forEach(_cancelDebounce);
+      await _removeSongs(missing);
+      AppLogger.i('[FileWatcher] Folder moved: $from → $to');
+    } catch (e) {
+      AppLogger.e('[FileWatcher] Folder move failed $from → $to: $e');
+    }
+  }
+
+  /// Removes the songs under [folder].
+  Future<void> _removeSongsUnder(String folder) async {
+    try {
+      final paths = [
+        for (final state in await _index.getScanStates())
+          if (p.isWithin(folder, state.path)) state.path,
+      ];
+      paths.forEach(_cancelDebounce);
+      if (await _removeSongs(paths)) {
+        AppLogger.i('[FileWatcher] Folder removed: $folder');
+      }
+    } catch (e) {
+      AppLogger.e('[FileWatcher] Removing songs under $folder failed: $e');
+    }
+  }
+
+  static String _removalKey(String path, {required bool isDirectory}) =>
+      '${isDirectory ? 'folder' : 'file'}:${p.basename(path)}';
+
+  /// Removes [path] after a delay, unless [_takePendingRemoval] claims it.
+  void _removeLater(String path, {required bool isDirectory}) {
+    void remove(String path) => unawaited(
+      isDirectory ? _removeSongsUnder(path) : deleteSongByPath(path),
+    );
+
+    final key = _removalKey(path, isDirectory: isDirectory);
+    // Same name already pending: remove that one now.
+    final previous = _pendingRemovals.remove(key);
+    if (previous != null) {
+      previous.timer.cancel();
+      remove(previous.path);
+    }
+    _pendingRemovals[key] = (
+      path: path,
+      timer: Timer(Constants.debounceDuration, () {
+        _pendingRemovals.remove(key);
+        remove(path);
+      }),
+    );
+  }
+
+  /// Claims a pending removal with the name of [path], if any.
+  String? _takePendingRemoval(String path, {required bool isDirectory}) {
+    final pending = _pendingRemovals.remove(
+      _removalKey(path, isDirectory: isDirectory),
+    );
+    if (pending == null) return null;
+    pending.timer.cancel();
+    return pending.path;
+  }
+
+  void _cancelDebounce(String path) {
+    _debounceTimers.remove(path)?.cancel();
   }
 
   void _debounce(String path, void Function() action) {
     _debounceTimers[path]?.cancel();
-    _debounceTimers[path] = Timer(const Duration(milliseconds: 300), () {
+    _debounceTimers[path] = Timer(Constants.debounceDuration, () {
       _debounceTimers.remove(path);
       action();
     });
@@ -290,21 +727,14 @@ class SongRepositoryImpl extends SongRepository {
       final song = await _fileScannerService.buildSongModel(path);
       if (song == null) return;
 
-      final existing = _box!
-          .query(SongModel_.path.equals(path))
-          .build()
-          .findFirst();
+      final existing = await _index.getByPaths([path]);
+      if (existing.isNotEmpty) song.id = existing.first.id;
 
-      if (existing != null) {
-        song.obxId = existing.obxId;
-        song.isExternal = existing.isExternal;
-      } else {
-        song.isExternal = false;
-      }
-
-      _box!.put(song);
+      await _index.upsert([await _withFileStat(song)]);
       AppLogger.i('[FileWatcher] Upserted: $path');
-      _onSongChanged.add(SongChange(type: SongChangeType.upsert, song: song));
+      _onSongChanged.add(
+        SongChange(type: SongChangeType.upsert, song: _decorate(song)),
+      );
     } catch (e) {
       AppLogger.e('[FileWatcher] Upsert failed for $path: $e');
     }
@@ -315,23 +745,39 @@ class SongRepositoryImpl extends SongRepository {
     required String newPath,
   }) async {
     try {
-      final existing = _box!
-          .query(SongModel_.path.equals(oldPath))
-          .build()
-          .findFirst();
-
-      if (existing == null) return;
+      final found = await _index.getByPaths([oldPath]);
+      if (found.isEmpty) {
+        // Not in the library (yet): nothing moves, index the new file.
+        await _onUpsert(newPath);
+        return;
+      }
+      final existing = _decorate(found.first);
 
       final updated = await _fileScannerService.buildSongModel(newPath);
       if (updated == null) return;
+      updated.id = existing.id;
 
-      updated.obxId = existing.obxId;
-      updated.isExternal = existing.isExternal;
-      _box!.put(updated);
+      await _index.delete([oldPath]);
+      await _index.upsert([await _withFileStat(updated)]);
+
+      // Favourites are stored by path, so the favourite moves too.
+      if (existing.isFavourite) {
+        await _favourites.set(existing, false);
+        await _favourites.set(updated, true);
+        _favouritePaths
+          ?..remove(oldPath)
+          ..add(newPath);
+      }
 
       AppLogger.i('[FileWatcher] Moved: $oldPath → $newPath');
+      if (!_onSongMoved.isClosed) {
+        _onSongMoved.add((from: oldPath, to: newPath));
+      }
       _onSongChanged.add(
-        SongChange(type: SongChangeType.upsert, song: updated),
+        SongChange(type: SongChangeType.delete, song: existing),
+      );
+      _onSongChanged.add(
+        SongChange(type: SongChangeType.upsert, song: _decorate(updated)),
       );
     } catch (e) {
       AppLogger.e('[FileWatcher] Move failed $oldPath → $newPath: $e');
@@ -341,144 +787,5 @@ class SongRepositoryImpl extends SongRepository {
   bool isAudioFile(String path) {
     final lower = path.toLowerCase();
     return Constants.audioExt.any((ext) => lower.endsWith(ext));
-  }
-}
-
-class _SyncIsolateArgs {
-  final String dbDirectoryPath;
-  final String musicDir;
-  final String artworkCacheDirPath;
-
-  _SyncIsolateArgs({
-    required this.dbDirectoryPath,
-    required this.musicDir,
-    required this.artworkCacheDirPath,
-  });
-}
-
-Future<bool> _syncInitialSongLibraryIsolate(
-  _SyncIsolateArgs args, {
-  Store? store,
-  Box<SongModel>? box,
-  FileScannerService? scanner,
-}) async {
-  // 1. Attach to store if store is not provided
-  final storeToUse =
-      store ?? Store.attach(getObjectBoxModel(), args.dbDirectoryPath);
-  final boxToUse = box ?? storeToUse.box<SongModel>();
-
-  try {
-    // 2. Fetch cached songs from DB using separate queries based on isExternal
-    final internalStoredSongs = boxToUse
-        .query(SongModel_.isExternal.equals(false))
-        .build()
-        .find();
-    final externalStoredSongs = boxToUse
-        .query(SongModel_.isExternal.equals(true))
-        .build()
-        .find();
-
-    final storedSongsByPath = <String, SongModel>{};
-    for (final s in internalStoredSongs) {
-      storedSongsByPath[s.path] = s;
-    }
-    for (final s in externalStoredSongs) {
-      storedSongsByPath[s.path] = s;
-    }
-
-    final internalStoredPaths = internalStoredSongs.map((s) => s.path).toSet();
-
-    // 3. Scan directory and identify updates/new files in O(1)
-    final dir = Directory(args.musicDir);
-    final diskPaths = <String>{};
-    final newOrModifiedFiles = <File>[];
-
-    if (await dir.exists()) {
-      await for (final entity in dir.list(recursive: false)) {
-        if (entity is File) {
-          final ext = p.extension(entity.path).toLowerCase();
-          if (Constants.audioExt.contains(ext)) {
-            final path = entity.path;
-            diskPaths.add(path);
-
-            final stored = storedSongsByPath[path];
-            if (stored == null) {
-              newOrModifiedFiles.add(entity);
-            } else {
-              // Check modification time
-              final stat = await entity.stat();
-              if (stat.modified.isAfter(stored.lastScannedAt)) {
-                newOrModifiedFiles.add(entity);
-              }
-            }
-          }
-        }
-      }
-    }
-
-    // 4. Compute changes for internal and external songs
-    // Deleted internal songs: present in DB under musicDir, but not on disk
-    final toRemovePaths = internalStoredPaths.difference(diskPaths);
-    final toRemoveIds = toRemovePaths
-        .map((path) => storedSongsByPath[path]?.obxId)
-        .whereType<int>()
-        .toList();
-
-    // Deleted external/custom songs: check direct existence on disk
-    for (final song in externalStoredSongs) {
-      try {
-        if (!await File(song.path).exists()) {
-          toRemoveIds.add(song.obxId);
-        }
-      } catch (e) {
-        AppLogger.e('Error checking existence of custom song ${song.path}: $e');
-        toRemoveIds.add(song.obxId);
-      }
-    }
-
-    final hasChanges = toRemoveIds.isNotEmpty || newOrModifiedFiles.isNotEmpty;
-    if (!hasChanges) {
-      return false;
-    }
-
-    // 5. Scan metadata for new/modified files in the isolate
-    final scannerToUse =
-        scanner ??
-        FileScannerService(
-          artworkCacheDir: Directory(args.artworkCacheDirPath),
-        );
-
-    final updatedSongs = <SongModel>[];
-    for (final file in newOrModifiedFiles) {
-      final song = await scannerToUse.buildSongModel(file.path);
-      if (song == null) continue;
-
-      final stored = storedSongsByPath[file.path];
-      if (stored != null) {
-        song.obxId = stored.obxId;
-        song.id = stored.id;
-        song.isExternal = stored.isExternal;
-      } else {
-        song.isExternal = false;
-      }
-      song.lastScannedAt = DateTime.now().toUtc();
-      updatedSongs.add(song);
-    }
-
-    // 6. Update DB inside a transaction
-    storeToUse.runInTransaction(TxMode.write, () {
-      if (toRemoveIds.isNotEmpty) {
-        boxToUse.removeMany(toRemoveIds);
-      }
-      if (updatedSongs.isNotEmpty) {
-        boxToUse.putMany(updatedSongs);
-      }
-    });
-
-    return true;
-  } finally {
-    if (store == null) {
-      storeToUse.close();
-    }
   }
 }

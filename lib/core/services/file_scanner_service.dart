@@ -1,22 +1,32 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
+import 'package:image/image.dart' as img;
 import 'package:mechanix_music/core/utils/app_logger.dart';
 import 'package:mechanix_music/core/utils/constants.dart';
 import 'package:mechanix_music/features/music/data/models/song_model.dart';
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 
 class FileScannerService {
-  // Artwork cache dir — initialized once on first use
-  Directory? _artworkCacheDir;
+  FileScannerService();
 
-  FileScannerService({Directory? artworkCacheDir})
-    : _artworkCacheDir = artworkCacheDir;
+  /// Longest side of the stored cover thumbnails, in pixels. Enough for the
+  /// largest place a cover is shown (the vinyl label, ~120 px at 2x).
+  static const int thumbnailSize = 256;
 
-  /// Scans [dirPath] (non-recursive) for audio files.
+  /// JPEG quality of the thumbnails (~15–30 KB each).
+  static const int thumbnailQuality = 80;
+
+  /// Thumbnails made during this scanner's lifetime, by a key of the
+  /// embedded picture, so the songs of one album share one thumbnail (one
+  /// decode, one string).
+  final Map<String, String?> _thumbnails = {};
+
+  /// Scans [dirPath] and its subfolders for audio files. Hidden files and
+  /// folders (name starting with `.`) are skipped.
   Future<Map<String, SongModel>> scanDirectory(String dirPath) async {
     final result = <String, SongModel>{};
 
@@ -25,9 +35,14 @@ class FileScannerService {
       final exists = await dir.exists();
       if (!exists) return result;
 
-      await for (final entity in dir.list(recursive: false)) {
+      await for (final entity in dir.list(
+        recursive: true,
+        followLinks: false,
+      )) {
         try {
           if (entity is! File) continue;
+          final relative = p.relative(entity.path, from: dirPath);
+          if (p.split(relative).any((part) => part.startsWith('.'))) continue;
 
           final ext = p.extension(entity.path).toLowerCase();
           if (!Constants.audioExt.contains(ext)) continue;
@@ -95,11 +110,18 @@ class FileScannerService {
           ? _formatDuration(meta!.duration!.inSeconds)
           : null;
 
-      // Artwork
-      String? artworkPath;
+      // Artwork: a small thumbnail of the embedded cover, as base64 (stored
+      // in the index). Never the full-size picture, which can be megabytes.
+      String? artworkBase64;
       final pictures = meta?.pictures;
       if (pictures != null && pictures.isNotEmpty) {
-        artworkPath = await _saveArtwork(id, pictures.first.bytes);
+        final bytes = pictures.first.bytes;
+        if (bytes.isNotEmpty) {
+          final key = '$artist|$album|${bytes.length}';
+          artworkBase64 = _thumbnails.containsKey(key)
+              ? _thumbnails[key]
+              : _thumbnails[key] = makeThumbnail(bytes);
+        }
       }
 
       return SongModel(
@@ -109,7 +131,7 @@ class FileScannerService {
         artist: artist,
         album: album,
         duration: duration,
-        artworkPath: artworkPath,
+        artworkBase64: artworkBase64,
       );
     } on FileSystemException catch (e) {
       AppLogger.i('[FileScannerService] Cannot read file "$filePath": $e');
@@ -122,41 +144,26 @@ class FileScannerService {
     }
   }
 
-  /// Saves raw artwork [bytes] to the app's support directory.
-  Future<String?> _saveArtwork(String songId, Uint8List bytes) async {
+  /// [bytes] (an encoded image) downscaled to fit [thumbnailSize] and
+  /// encoded as base64 JPEG, or null when it cannot be decoded.
+  static String? makeThumbnail(List<int> bytes) {
     try {
-      final cacheDir = await _getArtworkCacheDir();
-
-      final artworkFile = File(p.join(cacheDir.path, '$songId.jpg'));
-
-      // Skip writing if artwork already cached from a previous scan
-      if (await artworkFile.exists()) return artworkFile.path;
-
-      await artworkFile.writeAsBytes(bytes, flush: true);
-
-      AppLogger.i('[FileScannerService] Artwork saved: ${artworkFile.path}');
-      return artworkFile.path;
+      final image = img.decodeImage(Uint8List.fromList(bytes));
+      if (image == null) return null;
+      final small =
+          image.width <= thumbnailSize && image.height <= thumbnailSize
+          ? image
+          : img.copyResize(
+              image,
+              width: image.width >= image.height ? thumbnailSize : null,
+              height: image.height > image.width ? thumbnailSize : null,
+              interpolation: img.Interpolation.average,
+            );
+      return base64Encode(img.encodeJpg(small, quality: thumbnailQuality));
     } catch (e) {
-      AppLogger.i(
-        '[FileScannerService] Failed to save artwork for "$songId": $e',
-      );
+      AppLogger.i('[FileScannerService] Unreadable cover art: $e');
       return null;
     }
-  }
-
-  /// Returns (and lazily creates) the artwork cache directory.
-  Future<Directory> _getArtworkCacheDir() async {
-    if (_artworkCacheDir != null) return _artworkCacheDir!;
-
-    final appSupportDir = await getApplicationSupportDirectory();
-    final dir = Directory(p.join(appSupportDir.path, 'artworks'));
-    final exists = await dir.exists();
-    if (!exists) {
-      await dir.create(recursive: true);
-    }
-
-    _artworkCacheDir = dir;
-    return dir;
   }
 
   // Utils

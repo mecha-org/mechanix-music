@@ -22,6 +22,7 @@ class SongBloc extends Bloc<SongEvent, SongState> {
     on<SongDelete>(_onSongDelete);
     on<SongAddByPaths>(_onSongAddByPaths);
     on<SongSyncCompleted>(_onSongSyncCompleted);
+    on<SongToggleFavourite>(_onSongToggleFavourite);
 
     _songChangedSub = songRepository.onSongChanged.listen((change) {
       switch (change.type) {
@@ -159,6 +160,21 @@ class SongBloc extends Bloc<SongEvent, SongState> {
       AppLogger.i('[SongBloc] SongAddByPaths completed');
     } catch (e) {
       AppLogger.e('[SongBloc] SongAddByPaths failed: $e');
+    }
+  }
+
+  /// The list updates through [SongRepository.onSongChanged] (upsert).
+  Future<void> _onSongToggleFavourite(
+    SongToggleFavourite event,
+    Emitter<SongState> emit,
+  ) async {
+    try {
+      await songRepository.setFavourite(
+        event.song.path,
+        !event.song.isFavourite,
+      );
+    } catch (e) {
+      AppLogger.e('[SongBloc] SongToggleFavourite failed: $e');
     }
   }
 

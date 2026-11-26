@@ -1,37 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mechanix_music/core/utils/icons.dart';
-import 'package:mechanix_music/core/widgets/music_button.dart';
 import 'package:mechanix_music/features/music/presentation/screens/music_screen.dart';
 import 'package:mechanix_music/features/music/presentation/widgets/music/music_bottom_bar.dart';
-import 'package:mechanix_music/features/music/presentation/widgets/music/tabs/track/track_empty_screen.dart';
-import 'package:mechanix_music/features/music/presentation/widgets/music/tabs/track/track_list.dart';
+import 'package:mechanix_music/features/music/presentation/widgets/all_tracks/all_tracks_tile.dart';
 import 'package:mechanix_music/main.dart' as app;
 
 /// Shared helpers for the Mechanix Music integration tests.
 ///
-/// The app boots the *real* ObjectBox store, the music-library scan and the
+/// The app boots the *real* Tantivy song index, the music-library scan and the
 /// real audio backend, so these tests must run on a device/emulator (or a
 /// generated desktop/web target):
 ///
 ///   flutter test integration_test/<file>_test.dart -d <device>
 ///
 /// They cannot run on the headless `flutter test` runner because they rely on
-/// the app's native plugins (ObjectBox, audioplayers, path_provider).
+/// the app's native plugins (flutter_tantivy, audioplayers, path_provider).
 class TestHelper {
-  /// Bottom-navigation tab indices.
+  /// Bottom-navigation tab indices (Player / All tracks / Playlist).
   static const int nowPlayingTab = 0;
-  static const int searchTab = 1;
-  static const int tracksTab = 2;
-  static const int browseTab = 3;
+  static const int tracksTab = 1;
 
-  /// The asset for each bottom-navigation tab, in index order.
-  static const List<String> tabIcons = [
-    MusicIcons.playcircleIcon,
-    MusicIcons.searchIcon,
-    MusicIcons.tracksIcon,
-    MusicIcons.fileIcon,
-  ];
+  static const int playlistsTab = 2;
 
   /// Boots the real app and waits until the [MusicScreen] is on screen.
   static Future<void> launchApp(WidgetTester tester) async {
@@ -76,40 +65,44 @@ class TestHelper {
     );
   }
 
-  /// Finds a [MusicButton] by its declared icon path.
-  static Finder findMusicButton(String iconPath) {
-    return find.byWidgetPredicate(
-      (widget) => widget is MusicButton && widget.iconPath == iconPath,
-      description: 'MusicButton($iconPath)',
-    );
-  }
+  /// Finds the bottom-navigation destination at [index].
+  static Finder findTab(int index) => find.descendant(
+    of: find.byKey(const ValueKey('music_navigation_bar')),
+    matching: find.byKey(ValueKey('destination_$index')),
+  );
 
   /// Taps a bottom-navigation tab by its index.
-  ///
-  /// Resolves the tab via its unique icon asset (rather than positional
-  /// `MusicButton.at(index)`) so it stays reliable even when the mini player
-  /// adds an extra [MusicButton] above the tab row.
   static Future<void> tapTab(WidgetTester tester, int index) async {
-    final tab = findMusicButton(tabIcons[index]);
+    final tab = findTab(index);
     expect(tab, findsOneWidget, reason: 'tab $index should exist');
     await tester.tap(tab);
     await tester.pump(const Duration(milliseconds: 400));
   }
 
-  /// Waits for the Tracks tab to resolve to either a populated list or the
-  /// empty state, i.e. the indefinite spinner has been replaced.
+  /// Opens the folder browser from the All tracks app bar.
+  static Future<void> openBrowse(WidgetTester tester) async {
+    await tapTab(tester, tracksTab);
+    await tester.tap(find.byKey(const ValueKey('music_browse_button')));
+    await tester.pump(const Duration(milliseconds: 600));
+  }
+
+  /// Opens the All tracks tab and waits for it to resolve to either a
+  /// populated list or the empty state, i.e. the indefinite spinner has been
+  /// replaced. The app starts on the Player tab, where the list is offstage.
   static Future<void> waitForTracks(WidgetTester tester) async {
+    await tapTab(tester, tracksTab);
     await pumpUntil(
       tester,
       () =>
-          find.byType(TrackList).evaluate().isNotEmpty ||
-          find.byType(TrackEmptyScreen).evaluate().isNotEmpty,
+          find.byType(AllTracksTile).evaluate().isNotEmpty ||
+          find.byKey(const ValueKey('all_tracks_empty')).evaluate().isNotEmpty,
       reason: 'tracks to finish loading',
     );
   }
 
   /// Whether the Tracks tab currently shows a populated list of songs.
-  static bool tracksAreLoaded() => find.byType(TrackList).evaluate().isNotEmpty;
+  static bool tracksAreLoaded() =>
+      find.byType(AllTracksTile).evaluate().isNotEmpty;
 
   /// Whether the bottom navigation is currently visible.
   static bool hasBottomBar() =>
