@@ -328,6 +328,36 @@ abstract class AppLocalizations {
   /// **'Play next'**
   String get playNext;
 
+  /// No description provided for @addToQueue.
+  ///
+  /// In en, this message translates to:
+  /// **'Add to queue'**
+  String get addToQueue;
+
+  /// No description provided for @editQueue.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit queue'**
+  String get editQueue;
+
+  /// No description provided for @doneEditing.
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get doneEditing;
+
+  /// No description provided for @removeFromQueue.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove from queue'**
+  String get removeFromQueue;
+
+  /// No description provided for @alreadyInQueue.
+  ///
+  /// In en, this message translates to:
+  /// **'This song is already in queue'**
+  String get alreadyInQueue;
+
   /// No description provided for @addToPlaylist.
   ///
   /// In en, this message translates to:
@@ -429,6 +459,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Playing next: {title}'**
   String playingNextSong(String title);
+
+  /// No description provided for @addedToQueue.
+  ///
+  /// In en, this message translates to:
+  /// **'Added to queue: {title}'**
+  String addedToQueue(String title);
 
   /// No description provided for @sleepTimerSet.
   ///

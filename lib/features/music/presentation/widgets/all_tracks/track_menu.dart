@@ -14,6 +14,7 @@ import 'package:widgets/widgets.dart';
 
 enum TrackAction {
   playNext,
+  addToQueue,
   addToPlaylist,
   favourite,
   share,
@@ -54,8 +55,20 @@ class TrackMenu extends StatelessWidget {
 
     switch (action) {
       case TrackAction.playNext:
-        context.read<PlaybackBloc>().add(PlaybackQueueNext(song));
-        notify(l10n.playingNextSong(song.title));
+        final playback = context.read<PlaybackBloc>();
+        // With nothing playing, the song starts now: no "next" to announce.
+        final isPlaying = playback.state.song != null;
+        playback.add(PlaybackQueueNext(song));
+        if (isPlaying) notify(l10n.playingNextSong(song.title));
+      case TrackAction.addToQueue:
+        final playback = context.read<PlaybackBloc>();
+        if (playback.state.playNextQueue.any((s) => s.path == song.path)) {
+          notify(l10n.alreadyInQueue);
+          return;
+        }
+        final isPlaying = playback.state.song != null;
+        playback.add(PlaybackQueueAdd(song));
+        if (isPlaying) notify(l10n.addedToQueue(song.title));
       case TrackAction.addToPlaylist:
         showAddToPlaylistSheet(context, song);
       case TrackAction.favourite:
@@ -132,6 +145,16 @@ class TrackMenu extends StatelessWidget {
             height: 20,
           ),
           l10n.playNext,
+        ),
+        item(
+          TrackAction.addToQueue,
+          Image.asset(
+            MusicIcons.queue,
+            color: theme.colorScheme.onSurface,
+            width: 20,
+            height: 20,
+          ),
+          l10n.addToQueue,
         ),
         if (showAddToPlaylist)
           item(

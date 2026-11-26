@@ -71,6 +71,11 @@
   "playlist": "Playlist",
 
   "playNext": "Play next",
+  "addToQueue": "Add to queue",
+  "editQueue": "Edit queue",
+  "doneEditing": "Done",
+  "removeFromQueue": "Remove from queue",
+  "alreadyInQueue": "This song is already in queue",
   "addToPlaylist": "Add to playlist",
   "addToFavourite": "Add to favourite",
   "removeFromFavourite": "Remove from favourite",
@@ -103,6 +108,14 @@
   },
   "playingNextSong": "Playing next: {title}",
   "@playingNextSong": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "addedToQueue": "Added to queue: {title}",
+  "@addedToQueue": {
     "placeholders": {
       "title": {
         "type": "String"

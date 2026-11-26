@@ -53,6 +53,9 @@ class PlaybackBloc extends Bloc<PlaybackEvent, PlaybackState> {
     on<PlaybackToggleShuffle>(_onToggleShuffle);
     on<PlaybackCycleRepeatMode>(_onCycleRepeatMode);
     on<PlaybackQueueNext>(_onQueueNext);
+    on<PlaybackQueueAdd>(_onQueueAdd);
+    on<PlaybackQueueMoved>(_onQueueMoved);
+    on<PlaybackQueueRemoved>(_onQueueRemoved);
     on<PlaybackSetSleepTimer>(_onSetSleepTimer);
     on<PlaybackSleepTimerElapsed>(_onSleepTimerElapsed);
 
@@ -118,8 +121,15 @@ class PlaybackBloc extends Bloc<PlaybackEvent, PlaybackState> {
   ) {
     // A playlist or folder queue is not replaced by library changes.
     if (!state.followsLibrary) return;
+    // Songs moved into the queue stay out (the current song stays findable).
+    final moved = {...state.movedToQueue}..remove(state.song?.path);
     _applyList(
-      event.songs,
+      moved.isEmpty
+          ? event.songs
+          : [
+              for (final s in event.songs)
+                if (!moved.contains(s.path)) s,
+            ],
       followsLibrary: true,
       stopIfMissing: true,
       emit: emit,
@@ -133,14 +143,18 @@ class PlaybackBloc extends Bloc<PlaybackEvent, PlaybackState> {
     event.playbackList,
     followsLibrary: event.followsLibrary,
     stopIfMissing: false,
+    // A new list: songs moved into the queue from the old one count again.
+    movedToQueue: const {},
     emit: emit,
   );
 
-  /// Replaces the play queue with [updatedList].
+  /// Replaces the play queue with [updatedList]. [movedToQueue] replaces
+  /// [PlaybackState.movedToQueue] when given.
   void _applyList(
     List<SongModel> updatedList, {
     required bool followsLibrary,
     required bool stopIfMissing,
+    Set<String>? movedToQueue,
     required Emitter<PlaybackState> emit,
   }) {
     final shuffledList = state.isShuffled
@@ -154,6 +168,7 @@ class PlaybackBloc extends Bloc<PlaybackEvent, PlaybackState> {
           playbackList: updatedList,
           shuffledList: shuffledList,
           followsLibrary: followsLibrary,
+          movedToQueue: movedToQueue,
         ),
       );
       return;
@@ -172,6 +187,7 @@ class PlaybackBloc extends Bloc<PlaybackEvent, PlaybackState> {
           anchorPath: null,
           shuffledList: shuffledList,
           followsLibrary: followsLibrary,
+          movedToQueue: movedToQueue,
         ),
       );
       return;
@@ -199,6 +215,7 @@ class PlaybackBloc extends Bloc<PlaybackEvent, PlaybackState> {
         currentIndex: newIndex,
         shuffledList: shuffledList,
         followsLibrary: followsLibrary,
+        movedToQueue: movedToQueue,
       ),
     );
   }
@@ -342,6 +359,142 @@ class PlaybackBloc extends Bloc<PlaybackEvent, PlaybackState> {
     }
   }
 
+  void _onQueueAdd(PlaybackQueueAdd event, Emitter<PlaybackState> emit) {
+    if (state.song == null) {
+      add(PlaybackPlay(event.song));
+      return;
+    }
+    final path = event.song.path;
+    // Already queued: the menu says so; the queue stays as it is.
+    if (state.playNextQueue.any((s) => s.path == path)) return;
+    emit(
+      _withoutUpcoming(path).copyWith(
+        playNextQueue: [...state.playNextQueue, event.song],
+      ),
+    );
+  }
+
+  /// The state with the song at [path] taken out of the rest of the play
+  /// order (not out of the songs already played), as it is being queued:
+  /// it then plays once, from the queue.
+  PlaybackState _withoutUpcoming(String path) {
+    final order = state.playOrder;
+    final at = order.indexWhere((s) => s.path == path, state.orderIndex + 1);
+    if (at == -1) return state;
+    final newOrder = [...order]..removeAt(at);
+    final moved = {...state.movedToQueue, path};
+    if (!state.isShuffled) {
+      return state.copyWith(playbackList: newOrder, movedToQueue: moved);
+    }
+    // Also out of the plain list, so turning shuffle off doesn't bring it
+    // back; its index is looked up again.
+    final playbackList = [
+      for (final s in state.playbackList)
+        if (s.path != path) s,
+    ];
+    final current = state.anchorPath ?? state.song?.path;
+    return state.copyWith(
+      shuffledList: newOrder,
+      playbackList: playbackList,
+      currentIndex: playbackList.indexWhere((s) => s.path == current),
+      movedToQueue: moved,
+    );
+  }
+
+  void _onQueueMoved(PlaybackQueueMoved event, Emitter<PlaybackState> emit) {
+    final upNext = state.upNext;
+    final from = event.from;
+    if (from < 0 || from >= upNext.length) return;
+    final to = event.to.clamp(0, upNext.length - 1);
+    if (to == from) return;
+
+    // Within the "play next" songs: only their order changes.
+    final queued = state.playNextQueue.length;
+    if (from < queued && to < queued) {
+      final queue = [...state.playNextQueue];
+      queue.insert(to, queue.removeAt(from));
+      emit(state.copyWith(playNextQueue: queue));
+      return;
+    }
+    final moved = [...upNext];
+    moved.insert(to, moved.removeAt(from));
+    _setUpNext(moved, emit);
+  }
+
+  void _onQueueRemoved(
+    PlaybackQueueRemoved event,
+    Emitter<PlaybackState> emit,
+  ) {
+    final upNext = state.upNext;
+    final index = event.index;
+    if (index < 0 || index >= upNext.length) return;
+
+    if (index < state.playNextQueue.length) {
+      emit(
+        state.copyWith(
+          playNextQueue: [...state.playNextQueue]..removeAt(index),
+        ),
+      );
+      return;
+    }
+    _setUpNext([...upNext]..removeAt(index), emit);
+  }
+
+  /// Makes [upNext] what plays after the current song. The "play next"
+  /// songs become part of the play order, and the edited order no longer
+  /// follows the library (a library change would undo the edit).
+  void _setUpNext(List<SongModel> upNext, Emitter<PlaybackState> emit) {
+    final song = state.song;
+    final order = state.playOrder;
+    final index = song == null ? -1 : state.orderIndex;
+    final played = index >= 0 && index < order.length
+        ? order.sublist(0, index + 1)
+        : const <SongModel>[];
+
+    // Each song once: the current song (or the song a "play next" song
+    // follows) stays where it is; a song moved up is no longer "played".
+    final seen = <String>{?song?.path, ?state.anchorPath};
+    final upcoming = [
+      for (final s in upNext)
+        if (seen.add(s.path)) s,
+    ];
+    final upcomingPaths = {for (final s in upcoming) s.path};
+    final newOrder = [
+      for (final s in played)
+        if (!upcomingPaths.contains(s.path)) s,
+      ...upcoming,
+    ];
+
+    // Shuffled: the order is the shuffled list; the plain list keeps its
+    // order but loses removed songs and gains queued ones.
+    final List<SongModel> playbackList;
+    if (state.isShuffled) {
+      final inOrder = {for (final s in newOrder) s.path};
+      final known = {for (final s in state.playbackList) s.path};
+      playbackList = [
+        for (final s in state.playbackList)
+          if (inOrder.contains(s.path)) s,
+        for (final s in newOrder)
+          if (!known.contains(s.path)) s,
+      ];
+    } else {
+      playbackList = newOrder;
+    }
+
+    final anchor = state.anchorPath ?? song?.path;
+    emit(
+      state.copyWith(
+        playbackList: playbackList,
+        shuffledList: state.isShuffled ? newOrder : null,
+        playNextQueue: const [],
+        currentIndex: song == null
+            ? null
+            : playbackList.indexWhere((s) => s.path == anchor),
+        followsLibrary: false,
+      ),
+    );
+  }
+
   void _onQueueNext(PlaybackQueueNext event, Emitter<PlaybackState> emit) {
     if (state.song == null) {
       add(PlaybackPlay(event.song));
@@ -349,7 +502,7 @@ class PlaybackBloc extends Bloc<PlaybackEvent, PlaybackState> {
     }
     final path = event.song.path;
     emit(
-      state.copyWith(
+      _withoutUpcoming(path).copyWith(
         playNextQueue: [
           event.song,
           ...state.playNextQueue.where((s) => s.path != path),

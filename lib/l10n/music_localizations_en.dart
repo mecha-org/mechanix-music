@@ -132,6 +132,21 @@ class AppLocalizationsEn extends AppLocalizations {
   String get playNext => 'Play next';
 
   @override
+  String get addToQueue => 'Add to queue';
+
+  @override
+  String get editQueue => 'Edit queue';
+
+  @override
+  String get doneEditing => 'Done';
+
+  @override
+  String get removeFromQueue => 'Remove from queue';
+
+  @override
+  String get alreadyInQueue => 'This song is already in queue';
+
+  @override
   String get addToPlaylist => 'Add to playlist';
 
   @override
@@ -186,6 +201,11 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String playingNextSong(String title) {
     return 'Playing next: $title';
+  }
+
+  @override
+  String addedToQueue(String title) {
+    return 'Added to queue: $title';
   }
 
   @override

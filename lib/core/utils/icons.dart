@@ -22,4 +22,5 @@ class MusicIcons {
   static const String dragHandle = 'assets/icons/drag_handle.png';
   static const String delete = 'assets/icons/delete.png';
   static const String comet = 'assets/icons/comet.png';
+  static const String queue = 'assets/icons/queue.png';
 }

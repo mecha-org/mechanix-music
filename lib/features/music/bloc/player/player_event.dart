@@ -113,6 +113,36 @@ class PlaybackQueueNext extends PlaybackEvent {
   List<Object?> get props => [song];
 }
 
+/// Adds a song to the end of the "play next" queue: after the songs queued
+/// before it, before the rest of the play order.
+class PlaybackQueueAdd extends PlaybackEvent {
+  final SongModel song;
+  const PlaybackQueueAdd(this.song);
+
+  @override
+  List<Object?> get props => [song];
+}
+
+/// Moves a song of [PlaybackState.upNext] from [from] to [to] (its final
+/// position, as [ReorderableList.onReorderItem] reports it).
+class PlaybackQueueMoved extends PlaybackEvent {
+  final int from;
+  final int to;
+  const PlaybackQueueMoved(this.from, this.to);
+
+  @override
+  List<Object?> get props => [from, to];
+}
+
+/// Removes the song at [index] of [PlaybackState.upNext].
+class PlaybackQueueRemoved extends PlaybackEvent {
+  final int index;
+  const PlaybackQueueRemoved(this.index);
+
+  @override
+  List<Object?> get props => [index];
+}
+
 /// Sets (or with null, cancels) the sleep timer.
 class PlaybackSetSleepTimer extends PlaybackEvent {
   final SleepTimerOption? option;

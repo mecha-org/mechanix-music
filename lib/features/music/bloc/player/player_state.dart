@@ -41,6 +41,10 @@ class PlaybackState extends Equatable {
   /// while a playlist or a folder is playing).
   final bool followsLibrary;
 
+  /// Songs moved from the rest of the play order into [playNextQueue], so
+  /// they play once. Library updates keep them out of the order.
+  final Set<String> movedToQueue;
+
   const PlaybackState({
     this.status = PlaybackStatus.initial,
     this.song,
@@ -55,6 +59,7 @@ class PlaybackState extends Equatable {
     this.anchorPath,
     this.sleepTimer,
     this.followsLibrary = true,
+    this.movedToQueue = const {},
   });
 
   /// The order songs are played in: shuffled or library order.
@@ -146,6 +151,7 @@ class PlaybackState extends Equatable {
     Object? anchorPath = _unset,
     Object? sleepTimer = _unset,
     bool? followsLibrary,
+    Set<String>? movedToQueue,
   }) => PlaybackState(
     status: status ?? this.status,
     song: song ?? this.song,
@@ -164,6 +170,7 @@ class PlaybackState extends Equatable {
         ? this.sleepTimer
         : sleepTimer as SleepTimerOption?,
     followsLibrary: followsLibrary ?? this.followsLibrary,
+    movedToQueue: movedToQueue ?? this.movedToQueue,
   );
 
   @override
@@ -181,5 +188,6 @@ class PlaybackState extends Equatable {
     anchorPath,
     sleepTimer,
     followsLibrary,
+    movedToQueue,
   ];
 }

@@ -975,6 +975,225 @@ void main() {
     );
   });
 
+  group('queue editing', () {
+    // Playing 1 of 0..4; 3 and outsider queued to play next.
+    PlaybackState playing({bool shuffled = false}) => PlaybackState(
+      status: PlaybackStatus.playing,
+      song: list5[1],
+      playbackList: list5,
+      currentIndex: 1,
+      isShuffled: shuffled,
+      shuffledList: shuffled
+          ? [list5[4], list5[1], list5[0], list5[3], list5[2]]
+          : const [],
+      playNextQueue: [list5[3], outsider],
+    );
+
+    List<String> paths(Iterable<SongModel> songs) => [
+      for (final s in songs) s.path,
+    ];
+
+    blocTest<PlaybackBloc, PlaybackState>(
+      'Add to queue puts the song after the queued songs, once',
+      build: buildBloc,
+      seed: playing,
+      act: (bloc) => bloc
+        ..add(PlaybackQueueAdd(list5[0]))
+        ..add(PlaybackQueueAdd(list5[3])),
+      verify: (bloc) {
+        // 3 was already queued: the queue stays as it is.
+        expect(bloc.state.playNextQueue, [list5[3], outsider, list5[0]]);
+        expect(bloc.state.upNext.take(4), [
+          list5[3],
+          outsider,
+          list5[0],
+          list5[2],
+        ]);
+      },
+    );
+
+    blocTest<PlaybackBloc, PlaybackState>(
+      'Add to queue with nothing playing plays the song',
+      build: buildBloc,
+      act: (bloc) => bloc.add(PlaybackQueueAdd(list5[2])),
+      wait: const Duration(milliseconds: 450),
+      verify: (_) => verify(() => repo.play(list5[2].path)).called(1),
+    );
+
+    blocTest<PlaybackBloc, PlaybackState>(
+      'moving within the queued songs only reorders them',
+      build: buildBloc,
+      seed: playing,
+      act: (bloc) => bloc.add(const PlaybackQueueMoved(1, 0)),
+      verify: (bloc) {
+        expect(bloc.state.playNextQueue, [outsider, list5[3]]);
+        expect(bloc.state.followsLibrary, isTrue);
+      },
+    );
+
+    blocTest<PlaybackBloc, PlaybackState>(
+      'moving into the play order rewrites what comes next',
+      build: buildBloc,
+      seed: playing,
+      // upNext: 3, outsider, 2, 3, 4 -> move 4 to the front.
+      act: (bloc) => bloc.add(const PlaybackQueueMoved(4, 0)),
+      verify: (bloc) {
+        final state = bloc.state;
+        // 3 was queued and also in the order: it plays once.
+        expect(paths(state.upNext), paths([list5[4], list5[3], outsider, list5[2]]));
+        expect(state.playNextQueue, isEmpty);
+        expect(state.song, same(list5[1]));
+        expect(state.currentIndex, 1);
+        expect(state.nextSong, same(list5[4]));
+        expect(state.followsLibrary, isFalse);
+      },
+    );
+
+    blocTest<PlaybackBloc, PlaybackState>(
+      'removing a queued song leaves the order alone',
+      build: buildBloc,
+      seed: playing,
+      act: (bloc) => bloc.add(const PlaybackQueueRemoved(0)),
+      verify: (bloc) {
+        expect(bloc.state.playNextQueue, [outsider]);
+        expect(bloc.state.playbackList, list5);
+      },
+    );
+
+    blocTest<PlaybackBloc, PlaybackState>(
+      'removing a song of the order drops it from what comes next',
+      build: buildBloc,
+      seed: playing,
+      // upNext: 3, outsider, 2, 3, 4 -> remove 2.
+      act: (bloc) => bloc.add(const PlaybackQueueRemoved(2)),
+      verify: (bloc) {
+        final state = bloc.state;
+        expect(paths(state.upNext), paths([list5[3], outsider, list5[4]]));
+        // Already played songs stay.
+        expect(state.queue.songs.first, same(list5[0]));
+        expect(state.followsLibrary, isFalse);
+      },
+    );
+
+    blocTest<PlaybackBloc, PlaybackState>(
+      'when shuffled, edits the shuffled order and keeps the plain list',
+      build: buildBloc,
+      seed: () => playing(shuffled: true),
+      // upNext: 3, outsider, 0, 3, 2 -> remove 0.
+      act: (bloc) => bloc.add(const PlaybackQueueRemoved(2)),
+      verify: (bloc) {
+        final state = bloc.state;
+        expect(
+          paths(state.shuffledList),
+          paths([list5[4], list5[1], list5[3], outsider, list5[2]]),
+        );
+        expect(
+          paths(state.playbackList),
+          paths([list5[1], list5[2], list5[3], list5[4], outsider]),
+        );
+        expect(paths(state.upNext), paths([list5[3], outsider, list5[2]]));
+      },
+    );
+
+    group('a song already coming up', () {
+      // Playing 1 of 0..4, nothing queued.
+      PlaybackState plain({bool shuffled = false}) => PlaybackState(
+        status: PlaybackStatus.playing,
+        song: list5[1],
+        playbackList: list5,
+        currentIndex: 1,
+        isShuffled: shuffled,
+        shuffledList: shuffled
+            ? [list5[4], list5[1], list5[0], list5[3], list5[2]]
+            : const [],
+      );
+
+      blocTest<PlaybackBloc, PlaybackState>(
+        'moves into the queue instead of playing twice',
+        build: buildBloc,
+        seed: plain,
+        act: (bloc) => bloc
+          ..add(PlaybackQueueAdd(list5[3]))
+          ..add(PlaybackQueueNext(list5[4])),
+        verify: (bloc) {
+          final state = bloc.state;
+          expect(paths(state.upNext), paths([list5[4], list5[3], list5[2]]));
+          expect(paths(state.playbackList), paths([list5[0], list5[1], list5[2]]));
+          expect(state.currentIndex, 1);
+          expect(state.movedToQueue, {list5[3].path, list5[4].path});
+        },
+      );
+
+      blocTest<PlaybackBloc, PlaybackState>(
+        'a song already played is queued again (a replay)',
+        build: buildBloc,
+        seed: plain,
+        act: (bloc) => bloc.add(PlaybackQueueAdd(list5[0])),
+        verify: (bloc) {
+          expect(bloc.state.playbackList, list5);
+          expect(bloc.state.playNextQueue, [list5[0]]);
+        },
+      );
+
+      blocTest<PlaybackBloc, PlaybackState>(
+        'stays out of the order when the library updates',
+        build: buildBloc,
+        seed: plain,
+        act: (bloc) => bloc
+          ..add(PlaybackQueueAdd(list5[3]))
+          ..add(PlaybackLibraryUpdated(list5)),
+        verify: (bloc) {
+          expect(paths(bloc.state.upNext), paths([list5[3], list5[2], list5[4]]));
+          expect(bloc.state.currentIndex, 1);
+        },
+      );
+
+      blocTest<PlaybackBloc, PlaybackState>(
+        'counts again once a new list is chosen',
+        build: buildBloc,
+        seed: plain,
+        act: (bloc) => bloc
+          ..add(PlaybackQueueAdd(list5[3]))
+          ..add(PlaybackListUpdated(list5)),
+        verify: (bloc) {
+          expect(bloc.state.movedToQueue, isEmpty);
+          expect(bloc.state.playbackList, list5);
+        },
+      );
+
+      blocTest<PlaybackBloc, PlaybackState>(
+        'when shuffled, leaves both orders',
+        build: buildBloc,
+        seed: () => plain(shuffled: true),
+        // Shuffled: 4, 1, 0, 3, 2 -> 3 is coming up.
+        act: (bloc) => bloc.add(PlaybackQueueAdd(list5[3])),
+        verify: (bloc) {
+          final state = bloc.state;
+          expect(
+            paths(state.shuffledList),
+            paths([list5[4], list5[1], list5[0], list5[2]]),
+          );
+          expect(
+            paths(state.playbackList),
+            paths([list5[0], list5[1], list5[2], list5[4]]),
+          );
+          expect(state.currentIndex, 1);
+          expect(paths(state.upNext), paths([list5[3], list5[0], list5[2]]));
+        },
+      );
+    });
+
+    blocTest<PlaybackBloc, PlaybackState>(
+      'ignores indexes outside what comes next',
+      build: buildBloc,
+      seed: playing,
+      act: (bloc) => bloc
+        ..add(const PlaybackQueueRemoved(9))
+        ..add(const PlaybackQueueMoved(-1, 2)),
+      expect: () => const <PlaybackState>[],
+    );
+  });
+
   group('play next queue', () {
     blocTest<PlaybackBloc, PlaybackState>(
       'queues a song to play right after the current one',
