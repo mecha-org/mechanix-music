@@ -147,6 +147,21 @@ class AppLocalizationsEn extends AppLocalizations {
   String get alreadyInQueue => 'This song is already in queue';
 
   @override
+  String get sortBy => 'Sort by';
+
+  @override
+  String get sortTitle => 'Title';
+
+  @override
+  String get sortArtist => 'Artist';
+
+  @override
+  String get sortDateAdded => 'Date added';
+
+  @override
+  String get sortDuration => 'Duration';
+
+  @override
   String get addToPlaylist => 'Add to playlist';
 
   @override

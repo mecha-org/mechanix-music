@@ -18,6 +18,7 @@ class PlaybackBloc extends Bloc<PlaybackEvent, PlaybackState> {
   Timer? _playDebounce; // Handle rapid song clicks efficiently
   final SongBloc _songBloc;
   late final StreamSubscription<SongState> _songSub;
+  late final StreamSubscription<List<String>> _removedSub;
   late final StreamSubscription<void> _completeSub;
   late final StreamSubscription<Duration> _durationSub;
 
@@ -29,11 +30,13 @@ class PlaybackBloc extends Bloc<PlaybackEvent, PlaybackState> {
   PlaybackBloc(this._repo, this._songBloc, {Random? random})
     : _random = random ?? Random(),
       super(
-        PlaybackState(
-          playbackList: _songBloc.state is SongLoaded
-              ? (_songBloc.state as SongLoaded).songs
-              : [],
-        ),
+        switch (_songBloc.state) {
+          SongLoaded(:final songs, :final unloadedCount) => PlaybackState(
+            playbackList: songs,
+            unloadedCount: unloadedCount,
+          ),
+          _ => const PlaybackState(),
+        },
       ) {
     on<PlaybackPlay>(_onPlay);
     on<PlaybackPause>(_onPause);
@@ -49,6 +52,8 @@ class PlaybackBloc extends Bloc<PlaybackEvent, PlaybackState> {
     on<PlaybackPlayPrevious>(_onPlayPrevious);
     on<PlaybackListUpdated>(_onPlaybackListUpdated);
     on<PlaybackLibraryUpdated>(_onLibraryUpdated);
+    on<PlaybackSongsRemoved>(_onSongsRemoved);
+    on<PlaybackQueueEndReached>(_onQueueEndReached);
     on<PlaybackDurationUpdated>(_onDurationUpdated);
     on<PlaybackToggleShuffle>(_onToggleShuffle);
     on<PlaybackCycleRepeatMode>(_onCycleRepeatMode);
@@ -91,9 +96,17 @@ class PlaybackBloc extends Bloc<PlaybackEvent, PlaybackState> {
         }}',
       );
       if (songState is SongLoaded) {
-        add(PlaybackLibraryUpdated(songState.songs));
+        add(
+          PlaybackLibraryUpdated(
+            songState.songs,
+            unloadedCount: songState.unloadedCount,
+          ),
+        );
       }
     });
+    _removedSub = _songBloc.songRepository.onSongsRemoved.listen(
+      (paths) => add(PlaybackSongsRemoved(paths)),
+    );
   }
 
   void _listenToSongComplete() {
@@ -131,10 +144,37 @@ class PlaybackBloc extends Bloc<PlaybackEvent, PlaybackState> {
                 if (!moved.contains(s.path)) s,
             ],
       followsLibrary: true,
-      stopIfMissing: true,
+      unloadedCount: event.unloadedCount,
       emit: emit,
     );
   }
+
+  /// Loads the next library page into the queue.
+  void _onQueueEndReached(
+    PlaybackQueueEndReached event,
+    Emitter<PlaybackState> emit,
+  ) {
+    if (state.followsLibrary) _songBloc.add(const SongLoadMore());
+  }
+
+  /// Stops playback when the current song's file is gone.
+  void _onSongsRemoved(
+    PlaybackSongsRemoved event,
+    Emitter<PlaybackState> emit,
+  ) {
+    final current = state.song;
+    if (current == null || !event.paths.contains(current.path)) return;
+    _repo.stop();
+    emit(_stopped());
+  }
+
+  /// Stopped, keeping the user's modes.
+  PlaybackState _stopped() => PlaybackState(
+    status: PlaybackStatus.stopped,
+    repeatMode: state.repeatMode,
+    isShuffled: state.isShuffled,
+    sleepTimer: state.sleepTimer,
+  );
 
   void _onPlaybackListUpdated(
     PlaybackListUpdated event,
@@ -142,7 +182,7 @@ class PlaybackBloc extends Bloc<PlaybackEvent, PlaybackState> {
   ) => _applyList(
     event.playbackList,
     followsLibrary: event.followsLibrary,
-    stopIfMissing: false,
+    unloadedCount: event.followsLibrary ? event.unloadedCount : 0,
     // A new list: songs moved into the queue from the old one count again.
     movedToQueue: const {},
     emit: emit,
@@ -153,7 +193,7 @@ class PlaybackBloc extends Bloc<PlaybackEvent, PlaybackState> {
   void _applyList(
     List<SongModel> updatedList, {
     required bool followsLibrary,
-    required bool stopIfMissing,
+    int unloadedCount = 0,
     Set<String>? movedToQueue,
     required Emitter<PlaybackState> emit,
   }) {
@@ -169,6 +209,7 @@ class PlaybackBloc extends Bloc<PlaybackEvent, PlaybackState> {
           shuffledList: shuffledList,
           followsLibrary: followsLibrary,
           movedToQueue: movedToQueue,
+          unloadedCount: unloadedCount,
         ),
       );
       return;
@@ -179,7 +220,8 @@ class PlaybackBloc extends Bloc<PlaybackEvent, PlaybackState> {
     final currentPath = state.song!.path;
     final newIndex = updatedList.indexWhere((s) => s.path == currentPath);
 
-    if (newIndex == -1 && !stopIfMissing) {
+    // Not in the list (e.g. not loaded yet): keeps playing.
+    if (newIndex == -1) {
       emit(
         state.copyWith(
           playbackList: updatedList,
@@ -188,20 +230,7 @@ class PlaybackBloc extends Bloc<PlaybackEvent, PlaybackState> {
           shuffledList: shuffledList,
           followsLibrary: followsLibrary,
           movedToQueue: movedToQueue,
-        ),
-      );
-      return;
-    }
-
-    if (newIndex == -1) {
-      // Current song was deleted — stop playback (keep the user's modes).
-      _repo.stop();
-      emit(
-        PlaybackState(
-          status: PlaybackStatus.stopped,
-          repeatMode: state.repeatMode,
-          isShuffled: state.isShuffled,
-          sleepTimer: state.sleepTimer,
+          unloadedCount: unloadedCount,
         ),
       );
       return;
@@ -216,6 +245,7 @@ class PlaybackBloc extends Bloc<PlaybackEvent, PlaybackState> {
         shuffledList: shuffledList,
         followsLibrary: followsLibrary,
         movedToQueue: movedToQueue,
+        unloadedCount: unloadedCount,
       ),
     );
   }
@@ -685,14 +715,7 @@ class PlaybackBloc extends Bloc<PlaybackEvent, PlaybackState> {
   Future<void> _onStop(PlaybackStop event, Emitter<PlaybackState> emit) async {
     try {
       await _repo.stop();
-      emit(
-        PlaybackState(
-          status: PlaybackStatus.stopped,
-          repeatMode: state.repeatMode,
-          isShuffled: state.isShuffled,
-          sleepTimer: state.sleepTimer,
-        ),
-      );
+      emit(_stopped());
     } catch (e) {
       AppLogger.e('Error during stop: $e');
 
@@ -710,6 +733,7 @@ class PlaybackBloc extends Bloc<PlaybackEvent, PlaybackState> {
     _playDebounce?.cancel();
     _sleepTimer?.cancel();
     await _songSub.cancel();
+    await _removedSub.cancel();
     await _completeSub.cancel();
     await _durationSub.cancel();
     await _repo.dispose();

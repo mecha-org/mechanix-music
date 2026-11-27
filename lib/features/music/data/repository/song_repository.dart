@@ -1,11 +1,18 @@
 import 'package:mechanix_music/core/utils/constants.dart';
+import 'package:mechanix_music/core/utils/enums.dart';
 import 'package:mechanix_music/features/music/data/models/album_summary.dart';
 import 'package:mechanix_music/features/music/data/models/song_change.dart';
 import 'package:mechanix_music/features/music/data/models/song_model.dart';
 
 abstract class SongRepository {
   Future<bool> syncInitialSongLibrary();
-  Future<List<SongModel>> getSongs({required int offset, required int limit});
+  /// Up to [limit] songs in [sort] order after the song at [after].
+  Future<List<SongModel>> getSongs({
+    String? after,
+    required int limit,
+    SongSort sort = SongSort.title,
+  });
+
   Future<int> getSongCount();
   Stream<SongChange> get onSongChanged;
 

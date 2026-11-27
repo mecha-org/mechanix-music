@@ -62,6 +62,8 @@ class _TrackList extends StatelessWidget {
       child: MechanixSwipableList(
         key: const ValueKey('all_tracks_list'),
         child: ListView.builder(
+          // A new order starts at the top.
+          key: ValueKey(state.sort),
           itemCount: songs.length + (showLoader ? 1 : 0),
           itemBuilder: (context, index) {
             if (index >= songs.length) {

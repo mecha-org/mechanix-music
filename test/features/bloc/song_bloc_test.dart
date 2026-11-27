@@ -50,6 +50,9 @@ void main() {
 
   SongBloc buildBloc() => SongBloc(songRepository: repository);
 
+  // SongModel has no ==: states compare the same song instances.
+  final alpha = [song('a', 'Alpha')];
+
   test('initial state is SongInitial', () {
     expect(buildBloc().state, const SongInitial());
   });
@@ -65,7 +68,7 @@ void main() {
           () => repository.syncInitialSongLibrary(),
         ).thenAnswer((_) async => false);
         when(
-          () => repository.getSongs(offset: 0, limit: 20),
+          () => repository.getSongs(limit: 20),
         ).thenAnswer((_) async => page);
         when(() => repository.getSongCount()).thenAnswer((_) async => 2);
       },
@@ -73,11 +76,11 @@ void main() {
       act: (bloc) => bloc.add(const SongInitialized()),
       expect: () => [
         const SongLoading(),
-        SongLoaded(songs: page, hasMore: false),
+        SongLoaded(songs: page, hasMore: false, totalCount: 2),
       ],
       verify: (_) {
         verify(() => repository.syncInitialSongLibrary()).called(1);
-        verify(() => repository.getSongs(offset: 0, limit: 20)).called(1);
+        verify(() => repository.getSongs(limit: 20)).called(1);
       },
     );
 
@@ -88,7 +91,7 @@ void main() {
           () => repository.syncInitialSongLibrary(),
         ).thenAnswer((_) async => true);
         when(
-          () => repository.getSongs(offset: 0, limit: 20),
+          () => repository.getSongs(limit: 20),
         ).thenAnswer((_) async => page);
         when(() => repository.getSongCount()).thenAnswer((_) async => 2);
       },
@@ -96,12 +99,12 @@ void main() {
       act: (bloc) => bloc.add(const SongInitialized()),
       expect: () => [
         const SongLoading(),
-        SongLoaded(songs: page, hasMore: false),
+        SongLoaded(songs: page, hasMore: false, totalCount: 2),
       ],
       verify: (_) {
         verify(() => repository.syncInitialSongLibrary()).called(1);
         // Initial load + post-sync reload = 2 calls
-        verify(() => repository.getSongs(offset: 0, limit: 20)).called(2);
+        verify(() => repository.getSongs(limit: 20)).called(2);
       },
     );
 
@@ -109,16 +112,16 @@ void main() {
       'reloads the first page when SongSyncCompleted is added',
       setUp: () {
         when(
-          () => repository.getSongs(offset: 0, limit: 20),
+          () => repository.getSongs(limit: 20),
         ).thenAnswer((_) async => page);
         when(() => repository.getSongCount()).thenAnswer((_) async => 2);
       },
       build: buildBloc,
       seed: () => const SongLoaded(songs: [], hasMore: false),
       act: (bloc) => bloc.add(const SongSyncCompleted()),
-      expect: () => [SongLoaded(songs: page, hasMore: false)],
+      expect: () => [SongLoaded(songs: page, hasMore: false, totalCount: 2)],
       verify: (_) {
-        verify(() => repository.getSongs(offset: 0, limit: 20)).called(1);
+        verify(() => repository.getSongs(limit: 20)).called(1);
       },
     );
 
@@ -131,7 +134,7 @@ void main() {
           () => repository.syncInitialSongLibrary(),
         ).thenAnswer((_) async => false);
         when(
-          () => repository.getSongs(offset: 0, limit: 20),
+          () => repository.getSongs(limit: 20),
         ).thenAnswer((_) async => fullPage);
         when(() => repository.getSongCount()).thenAnswer((_) async => 50);
       },
@@ -139,7 +142,7 @@ void main() {
       act: (bloc) => bloc.add(const SongInitialized()),
       expect: () => [
         const SongLoading(),
-        SongLoaded(songs: fullPage, hasMore: true),
+        SongLoaded(songs: fullPage, hasMore: true, totalCount: 50),
       ],
     );
 
@@ -150,7 +153,7 @@ void main() {
           () => repository.syncInitialSongLibrary(),
         ).thenAnswer((_) async => false);
         when(
-          () => repository.getSongs(offset: 0, limit: 20),
+          () => repository.getSongs(limit: 20),
         ).thenThrow(Exception('db down'));
       },
       build: buildBloc,
@@ -165,7 +168,7 @@ void main() {
           () => repository.syncInitialSongLibrary(),
         ).thenAnswer((_) async => false);
         when(
-          () => repository.getSongs(offset: 0, limit: 20),
+          () => repository.getSongs(limit: 20),
         ).thenAnswer((_) async => page);
         when(() => repository.getSongCount()).thenAnswer((_) async => 2);
       },
@@ -173,23 +176,23 @@ void main() {
       act: (bloc) => bloc.add(const SongInitialized()),
       expect: () => [
         const SongLoading(),
-        SongLoaded(songs: page, hasMore: false),
+        SongLoaded(songs: page, hasMore: false, totalCount: 2),
       ],
       verify: (_) {
-        verify(() => repository.getSongs(offset: 0, limit: 20)).called(1);
+        verify(() => repository.getSongs(limit: 20)).called(1);
       },
     );
 
     final reinitPage = songs(2);
 
     blocTest<SongBloc, SongState>(
-      're-initializing resets the offset and reloads from the first page',
+      're-initializing reloads from the first page',
       setUp: () {
         when(
           () => repository.syncInitialSongLibrary(),
         ).thenAnswer((_) async => false);
         when(
-          () => repository.getSongs(offset: 0, limit: 20),
+          () => repository.getSongs(limit: 20),
         ).thenAnswer((_) async => reinitPage);
         when(() => repository.getSongCount()).thenAnswer((_) async => 2);
       },
@@ -201,12 +204,12 @@ void main() {
       },
       expect: () => [
         const SongLoading(),
-        SongLoaded(songs: reinitPage, hasMore: false),
+        SongLoaded(songs: reinitPage, hasMore: false, totalCount: 2),
         const SongLoading(),
-        SongLoaded(songs: reinitPage, hasMore: false),
+        SongLoaded(songs: reinitPage, hasMore: false, totalCount: 2),
       ],
       verify: (_) {
-        verify(() => repository.getSongs(offset: 0, limit: 20)).called(2);
+        verify(() => repository.getSongs(limit: 20)).called(2);
       },
     );
   });
@@ -222,10 +225,10 @@ void main() {
           () => repository.syncInitialSongLibrary(),
         ).thenAnswer((_) async => true);
         when(
-          () => repository.getSongs(offset: 0, limit: 20),
+          () => repository.getSongs(limit: 20),
         ).thenAnswer((_) async => page1);
         when(
-          () => repository.getSongs(offset: 20, limit: 20),
+          () => repository.getSongs(after: '/19.mp3', limit: 20),
         ).thenAnswer((_) async => page2);
         when(() => repository.getSongCount()).thenAnswer((_) async => 40);
       },
@@ -237,9 +240,14 @@ void main() {
       },
       expect: () => [
         const SongLoading(),
-        SongLoaded(songs: page1, hasMore: true),
-        SongLoaded(songs: page1, hasMore: true, isLoadingMore: true),
-        SongLoaded(songs: [...page1, ...page2], hasMore: false),
+        SongLoaded(songs: page1, hasMore: true, totalCount: 40),
+        SongLoaded(
+          songs: page1,
+          hasMore: true,
+          isLoadingMore: true,
+          totalCount: 40,
+        ),
+        SongLoaded(songs: [...page1, ...page2], hasMore: false, totalCount: 40),
       ],
     );
 
@@ -273,7 +281,7 @@ void main() {
       'emits [loading-more, SongError] when fetching the next page throws',
       setUp: () {
         when(
-          () => repository.getSongs(offset: 0, limit: 20),
+          () => repository.getSongs(after: any(named: 'after'), limit: 20),
         ).thenThrow(Exception('page fetch failed'));
       },
       build: buildBloc,
@@ -292,15 +300,14 @@ void main() {
       build: buildBloc,
       seed: () => SongLoaded(
         songs: [song('1', 'Alpha', path: '/1.mp3')],
-        hasMore: true,
+        hasMore: false,
       ),
       act: (bloc) =>
           bloc.add(SongUpsert(song('1', 'Alpha (edited)', path: '/1.mp3'))),
       expect: () => [
         isA<SongLoaded>()
             .having((s) => s.songs.length, 'length', 1)
-            .having((s) => s.songs.single.title, 'title', 'Alpha (edited)')
-            .having((s) => s.hasMore, 'hasMore', true),
+            .having((s) => s.songs.single.title, 'title', 'Alpha (edited)'),
       ],
     );
 
@@ -322,6 +329,59 @@ void main() {
     );
 
     blocTest<SongBloc, SongState>(
+      'leaves a song past the loaded ones to a later page',
+      build: buildBloc,
+      seed: () => SongLoaded(songs: [song('a', 'Alpha')], hasMore: true),
+      act: (bloc) => bloc.add(SongUpsert(song('z', 'Zulu'))),
+      expect: () => const <SongState>[],
+    );
+
+    blocTest<SongBloc, SongState>(
+      'a song not loaded yet that changes keeps the library size',
+      setUp: () =>
+          when(() => repository.getSongCount()).thenAnswer((_) async => 5),
+      build: buildBloc,
+      seed: () => SongLoaded(
+        songs: [song('a', 'Alpha')],
+        hasMore: true,
+        totalCount: 5,
+      ),
+      // e.g. favourited elsewhere: an upsert for a song not loaded yet.
+      act: (bloc) =>
+          bloc.add(SongUpsert(song('z', 'Zulu')..isFavourite = true)),
+      expect: () => const <SongState>[],
+      verify: (bloc) =>
+          expect((bloc.state as SongLoaded).unloadedCount, 4),
+    );
+
+    blocTest<SongBloc, SongState>(
+      'a new song updates the library size',
+      setUp: () =>
+          when(() => repository.getSongCount()).thenAnswer((_) async => 6),
+      build: buildBloc,
+      seed: () => SongLoaded(songs: alpha, hasMore: true, totalCount: 5),
+      act: (bloc) => bloc.add(SongUpsert(song('z', 'Zulu'))),
+      expect: () => [SongLoaded(songs: alpha, hasMore: true, totalCount: 6)],
+    );
+
+    blocTest<SongBloc, SongState>(
+      'moves an edited song to its new place',
+      build: buildBloc,
+      seed: () => SongLoaded(
+        songs: [song('a', 'Alpha'), song('b', 'Bravo'), song('c', 'Charlie')],
+        hasMore: false,
+      ),
+      act: (bloc) => bloc.add(SongUpsert(song('a', 'Delta'))),
+      expect: () => [
+        isA<SongLoaded>().having(
+          (s) => s.songs.map((e) => e.title).toList(),
+          'titles',
+          ['Bravo', 'Charlie', 'Delta'],
+        ),
+      ],
+    );
+
+    blocTest<SongBloc, SongState>(
       'is ignored when the current state is not SongLoaded',
       build: buildBloc,
       act: (bloc) => bloc.add(SongUpsert(song('1', 'Alpha'))),
@@ -330,6 +390,16 @@ void main() {
   });
 
   group('SongDelete', () {
+    blocTest<SongBloc, SongState>(
+      'a song not loaded yet updates the library size',
+      setUp: () =>
+          when(() => repository.getSongCount()).thenAnswer((_) async => 4),
+      build: buildBloc,
+      seed: () => SongLoaded(songs: alpha, hasMore: true, totalCount: 5),
+      act: (bloc) => bloc.add(SongDelete(song('z', 'Zulu'))),
+      expect: () => [SongLoaded(songs: alpha, hasMore: true, totalCount: 4)],
+    );
+
     blocTest<SongBloc, SongState>(
       'removes the song with the matching path',
       build: buildBloc,
@@ -353,86 +423,130 @@ void main() {
     );
   });
 
-  // The bloc keeps an internal `_currentOffset` that upsert (insert) and delete
-  // mutate. The only externally observable effect is the offset used by the
-  // *next* page fetch, so these tests assert it via the SongLoadMore call.
-  group('offset bookkeeping', () {
+  // Which song the next page starts after.
+  group('next page cursor', () {
     void stubInitialPage() {
       when(
         () => repository.syncInitialSongLibrary(),
       ).thenAnswer((_) async => false);
       when(
-        () => repository.getSongs(offset: 0, limit: 20),
+        () => repository.getSongs(limit: 20),
       ).thenAnswer((_) async => songs(20));
       when(() => repository.getSongCount()).thenAnswer((_) async => 50);
+      // Later pages only: `any` would also match the first page (null).
+      when(
+        () => repository.getSongs(
+          after: any(named: 'after', that: isNotNull),
+          limit: 20,
+        ),
+      ).thenAnswer((_) async => songs(3, startIndex: 20));
+    }
+
+    Future<void> thenLoadMore(SongBloc bloc, SongEvent change) async {
+      bloc.add(const SongInitialized());
+      await Future<void>.delayed(Duration.zero);
+      bloc.add(change);
+      await Future<void>.delayed(Duration.zero);
+      bloc.add(const SongLoadMore());
+      await Future<void>.delayed(Duration.zero);
     }
 
     blocTest<SongBloc, SongState>(
-      'inserting a new song bumps the offset used by the next load-more',
-      setUp: () {
-        stubInitialPage();
-        when(
-          () => repository.getSongs(offset: 21, limit: 20),
-        ).thenAnswer((_) async => songs(3, startIndex: 21));
-      },
+      'a song inserted before the end leaves the cursor at the last song',
+      setUp: stubInitialPage,
       build: buildBloc,
-      act: (bloc) async {
-        bloc.add(const SongInitialized());
-        await Future<void>.delayed(Duration.zero);
-        // Path not present in the loaded page -> treated as a new insert.
-        bloc.add(SongUpsert(song('new', 'New', path: '/new.mp3')));
-        await Future<void>.delayed(Duration.zero);
-        bloc.add(const SongLoadMore());
-        await Future<void>.delayed(Duration.zero);
-      },
-      verify: (_) {
-        verify(() => repository.getSongs(offset: 21, limit: 20)).called(1);
-      },
+      act: (bloc) =>
+          thenLoadMore(bloc, SongUpsert(song('new', 'New', path: '/new.mp3'))),
+      verify: (_) => verify(
+        () => repository.getSongs(after: '/19.mp3', limit: 20),
+      ).called(1),
     );
 
     blocTest<SongBloc, SongState>(
-      'replacing an existing song leaves the offset unchanged',
-      setUp: () {
-        stubInitialPage();
-        when(
-          () => repository.getSongs(offset: 20, limit: 20),
-        ).thenAnswer((_) async => songs(3, startIndex: 20));
-      },
+      'a toggled favourite stays the last song',
+      setUp: stubInitialPage,
       build: buildBloc,
-      act: (bloc) async {
-        bloc.add(const SongInitialized());
-        await Future<void>.delayed(Duration.zero);
-        // '/5.mp3' is part of songs(20) -> in-place replace, no offset change.
-        bloc.add(SongUpsert(song('5', 'Edited', path: '/5.mp3')));
-        await Future<void>.delayed(Duration.zero);
-        bloc.add(const SongLoadMore());
-        await Future<void>.delayed(Duration.zero);
-      },
-      verify: (_) {
-        verify(() => repository.getSongs(offset: 20, limit: 20)).called(1);
-      },
+      act: (bloc) => thenLoadMore(
+        bloc,
+        SongUpsert(
+          song('19', 'Title 019', path: '/19.mp3')..isFavourite = true,
+        ),
+      ),
+      verify: (_) => verify(
+        () => repository.getSongs(after: '/19.mp3', limit: 20),
+      ).called(1),
     );
 
     blocTest<SongBloc, SongState>(
-      'deleting a song decrements the offset used by the next load-more',
+      'a last song renamed to sort later is left to a later page',
+      setUp: stubInitialPage,
+      build: buildBloc,
+      act: (bloc) =>
+          thenLoadMore(bloc, SongUpsert(song('19', 'Zulu', path: '/19.mp3'))),
+      verify: (_) => verify(
+        () => repository.getSongs(after: '/18.mp3', limit: 20),
+      ).called(1),
+    );
+
+    blocTest<SongBloc, SongState>(
+      'after the last song is deleted, pages continue after the one before',
+      setUp: stubInitialPage,
+      build: buildBloc,
+      act: (bloc) => thenLoadMore(
+        bloc,
+        SongDelete(song('19', 'Title 019', path: '/19.mp3')),
+      ),
+      verify: (_) => verify(
+        () => repository.getSongs(after: '/18.mp3', limit: 20),
+      ).called(1),
+    );
+  });
+
+  group('next page after a song that left the index', () {
+    final page1 = songs(20);
+    final page2 = songs(3, startIndex: 20);
+
+    blocTest<SongBloc, SongState>(
+      'continues after the song before it',
       setUp: () {
-        stubInitialPage();
         when(
-          () => repository.getSongs(offset: 19, limit: 20),
-        ).thenAnswer((_) async => songs(3, startIndex: 19));
+          () => repository.getSongs(after: '/19.mp3', limit: 20),
+        ).thenThrow(Exception('no track at /19.mp3'));
+        when(
+          () => repository.getSongs(after: '/18.mp3', limit: 20),
+        ).thenAnswer((_) async => [page1[19], ...page2]);
+        when(() => repository.getSongCount()).thenAnswer((_) async => 23);
       },
       build: buildBloc,
-      act: (bloc) async {
-        bloc.add(const SongInitialized());
-        await Future<void>.delayed(Duration.zero);
-        bloc.add(SongDelete(song('5', 'Title 005', path: '/5.mp3')));
-        await Future<void>.delayed(Duration.zero);
-        bloc.add(const SongLoadMore());
-        await Future<void>.delayed(Duration.zero);
+      seed: () => SongLoaded(songs: page1, hasMore: true),
+      act: (bloc) => bloc.add(const SongLoadMore()),
+      expect: () => [
+        SongLoaded(songs: page1, hasMore: true, isLoadingMore: true),
+        // A song already loaded is not added twice.
+        SongLoaded(songs: [...page1, ...page2], hasMore: false, totalCount: 23),
+      ],
+    );
+
+    blocTest<SongBloc, SongState>(
+      'fails after three songs',
+      setUp: () {
+        when(
+          () => repository.getSongs(
+            after: any(named: 'after'),
+            limit: 20,
+          ),
+        ).thenThrow(Exception('index broken'));
       },
-      verify: (_) {
-        verify(() => repository.getSongs(offset: 19, limit: 20)).called(1);
-      },
+      build: buildBloc,
+      seed: () => SongLoaded(songs: page1, hasMore: true),
+      act: (bloc) => bloc.add(const SongLoadMore()),
+      expect: () => [
+        SongLoaded(songs: page1, hasMore: true, isLoadingMore: true),
+        isA<SongError>(),
+      ],
+      verify: (_) => verify(
+        () => repository.getSongs(after: any(named: 'after'), limit: 20),
+      ).called(3),
     );
   });
 
@@ -482,7 +596,7 @@ void main() {
     blocTest<SongBloc, SongState>(
       'applies an upsert pushed from the repository stream',
       build: buildBloc,
-      seed: () => SongLoaded(songs: [song('a', 'Alpha')], hasMore: true),
+      seed: () => SongLoaded(songs: [song('a', 'Alpha')], hasMore: false),
       act: (bloc) => changeController.add(
         SongChange(type: SongChangeType.upsert, song: song('z', 'Zulu')),
       ),
@@ -565,6 +679,97 @@ void main() {
       verify: (_) => verify(
         () => repository.setFavourite(songs(1).first.path, false),
       ).called(1),
+    );
+  });
+
+  group('sort', () {
+    final byTitle = songs(2);
+    final byArtist = songs(2).reversed.toList();
+
+    blocTest<SongBloc, SongState>(
+      'SongSortChanged shows the sort at once, then reloads in that order',
+      setUp: () {
+        when(
+          () => repository.getSongs(limit: 20, sort: SongSort.artist),
+        ).thenAnswer((_) async => byArtist);
+        when(() => repository.getSongCount()).thenAnswer((_) async => 2);
+      },
+      build: buildBloc,
+      seed: () => SongLoaded(songs: byTitle, hasMore: true),
+      act: (bloc) => bloc.add(const SongSortChanged(SongSort.artist)),
+      expect: () => [
+        SongLoaded(songs: byTitle, hasMore: false, sort: SongSort.artist),
+        SongLoaded(
+          songs: byArtist,
+          hasMore: false,
+          sort: SongSort.artist,
+          totalCount: 2,
+        ),
+      ],
+      verify: (bloc) => expect(bloc.sort, SongSort.artist),
+    );
+
+    blocTest<SongBloc, SongState>(
+      'the songs not loaded yet still count while a new sort loads',
+      setUp: () {
+        when(
+          () => repository.getSongs(limit: 20, sort: SongSort.artist),
+        ).thenAnswer((_) async => byArtist);
+        when(() => repository.getSongCount()).thenAnswer((_) async => 50);
+      },
+      build: buildBloc,
+      seed: () => SongLoaded(songs: byTitle, hasMore: true, totalCount: 50),
+      act: (bloc) => bloc.add(const SongSortChanged(SongSort.artist)),
+      expect: () => [
+        isA<SongLoaded>()
+            .having((s) => s.hasMore, 'hasMore', false)
+            .having((s) => s.unloadedCount, 'unloadedCount', 48),
+        isA<SongLoaded>().having((s) => s.unloadedCount, 'unloadedCount', 48),
+      ],
+    );
+
+    blocTest<SongBloc, SongState>(
+      'SongSortChanged with the current sort does nothing',
+      build: buildBloc,
+      seed: () => SongLoaded(songs: byTitle, hasMore: false),
+      act: (bloc) => bloc.add(const SongSortChanged(SongSort.title)),
+      expect: () => const <SongState>[],
+    );
+
+    blocTest<SongBloc, SongState>(
+      'drops a page of the previous order that arrives late',
+      setUp: () {
+        final slowTitlePage = Completer<List<SongModel>>();
+        when(
+          () => repository.syncInitialSongLibrary(),
+        ).thenAnswer((_) async => false);
+        when(
+          () => repository.getSongs(limit: 20),
+        ).thenAnswer((_) => slowTitlePage.future);
+        when(
+          () => repository.getSongs(limit: 20, sort: SongSort.duration),
+        ).thenAnswer((_) async {
+          slowTitlePage.complete(byTitle);
+          return byArtist;
+        });
+        when(() => repository.getSongCount()).thenAnswer((_) async => 2);
+      },
+      build: buildBloc,
+      act: (bloc) async {
+        bloc.add(const SongInitialized());
+        await Future<void>.delayed(Duration.zero);
+        bloc.add(const SongSortChanged(SongSort.duration));
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      },
+      expect: () => [
+        const SongLoading(),
+        SongLoaded(
+          songs: byArtist,
+          hasMore: false,
+          sort: SongSort.duration,
+          totalCount: 2,
+        ),
+      ],
     );
   });
 }

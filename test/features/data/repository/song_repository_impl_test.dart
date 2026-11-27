@@ -126,12 +126,12 @@ void main() {
         makeSong('3', '/c.mp3', 'Bravo'),
       ]);
 
-      final result = await repository.getSongs(offset: 0, limit: 10);
+      final result = await repository.getSongs(limit: 10);
 
       expect(result.map((s) => s.title), ['Alpha', 'Bravo', 'Charlie']);
     });
 
-    test('respects offset and limit', () async {
+    test('continues after the given song, up to the limit', () async {
       index.putAll([
         makeSong('1', '/a.mp3', 'Alpha'),
         makeSong('2', '/b.mp3', 'Bravo'),
@@ -139,13 +139,13 @@ void main() {
         makeSong('4', '/d.mp3', 'Delta'),
       ]);
 
-      final result = await repository.getSongs(offset: 1, limit: 2);
+      final result = await repository.getSongs(after: '/a.mp3', limit: 2);
 
       expect(result.map((s) => s.title), ['Bravo', 'Charlie']);
     });
 
     test('returns empty list when no songs', () async {
-      final result = await repository.getSongs(offset: 0, limit: 10);
+      final result = await repository.getSongs(limit: 10);
       expect(result, isEmpty);
     });
   });
@@ -442,6 +442,69 @@ void main() {
     });
   });
 
+  group('sort', () {
+    setUp(() {
+      index.putAll([
+        makeSong('1', '/music/a.mp3', 'alpha')
+          ..duration = '04:00'
+          ..addedAt = DateTime.utc(2024, 3),
+        makeSong('2', '/music/b.mp3', 'Bravo')
+          ..duration = '02:00'
+          ..addedAt = DateTime.utc(2024, 1),
+        makeSong('3', '/music/c.mp3', 'Charlie')
+          ..addedAt = DateTime.utc(2024, 2),
+      ]);
+    });
+
+    Future<List<String>> titles(SongSort sort, {String? after}) async => [
+      for (final song in await repository.getSongs(
+        after: after,
+        limit: 10,
+        sort: sort,
+      ))
+        song.title,
+    ];
+
+    test('lists songs in the chosen order', () async {
+      expect(await titles(SongSort.title), ['alpha', 'Bravo', 'Charlie']);
+      expect(await titles(SongSort.dateAdded), ['alpha', 'Charlie', 'Bravo']);
+      // Unknown duration last.
+      expect(await titles(SongSort.duration), ['Bravo', 'alpha', 'Charlie']);
+    });
+
+    test('pages continue after a song in the chosen order', () async {
+      expect(
+        await titles(SongSort.dateAdded, after: '/music/a.mp3'),
+        ['Charlie', 'Bravo'],
+      );
+    });
+  });
+
+  group('date added', () {
+    test('a song of the music folder dates from its file', () async {
+      final path = '${tempMusicDir.path}/a.mp3';
+      await File(path).create();
+      final modified = DateTime.utc(2023, 5, 6);
+      await File(path).setLastModified(modified);
+      scanAnyFile();
+
+      expect(await repository.syncInitialSongLibrary(), isTrue);
+
+      expect(index.songs[path]!.addedAt, modified);
+    });
+
+    test('an imported song dates from its import', () async {
+      final before = DateTime.now().toUtc();
+      when(
+        () => scanner.buildSongModel('/new.mp3'),
+      ).thenAnswer((_) async => makeSong('new', '/new.mp3', 'New Song'));
+
+      await repository.addSongsByPaths(['/new.mp3']);
+
+      expect(index.songs['/new.mp3']!.addedAt!.isBefore(before), isFalse);
+    });
+  });
+
   group('favourites', () {
     test('setFavourite writes the favourites .m3u8 and emits an upsert', () async {
       final song = makeSong('1', '/music/a.mp3', 'Alpha')..duration = '03:05';
@@ -483,7 +546,7 @@ void main() {
         '#EXTM3U\n#EXTINF:-1,Bravo\n/music/b.mp3\n',
       );
 
-      final songs = await repository.getSongs(offset: 0, limit: 10);
+      final songs = await repository.getSongs(limit: 10);
 
       expect(
         {for (final s in songs) s.path: s.isFavourite},
@@ -500,6 +563,7 @@ void main() {
       index.putAll([
         makeSong('a', path, 'A')
           ..lastScannedAt = DateTime.utc(2000)
+          ..addedAt = DateTime.utc(2001)
           ..isFavourite = true,
       ]);
       await File(path).create();
@@ -513,6 +577,7 @@ void main() {
       final song = (await repository.getSongsByPaths([path])).single;
       expect(song.title, 'A (remastered)');
       expect(song.id, 'a', reason: 'the id (artwork name) is kept');
+      expect(song.addedAt, DateTime.utc(2001));
       expect(song.isFavourite, isTrue);
     });
   });
@@ -650,7 +715,7 @@ void main() {
 
     test('favourites edited elsewhere update the songs', () async {
       index.putAll([makeSong('1', '/a.mp3', 'A')]);
-      await repository.getSongs(offset: 0, limit: 10); // loads favourites
+      await repository.getSongs(limit: 10); // loads favourites
 
       final changes = expectLater(
         repository.onSongChanged,
@@ -790,7 +855,8 @@ void main() {
       index.putAll([
         makeSong('s', from, 'Song')
           ..mtime = stat.modified.millisecondsSinceEpoch
-          ..size = stat.size,
+          ..size = stat.size
+          ..addedAt = DateTime.utc(2001),
       ]);
       await favourites.setEntries([M3u8Entry(path: from)]);
       scanAnyFile();
@@ -805,6 +871,7 @@ void main() {
 
       expect(index.songs.keys, [to]);
       expect(index.songs[to]!.id, 's');
+      expect(index.songs[to]!.addedAt, DateTime.utc(2001));
       expect(await favourites.paths(), [to]);
     }, timeout: timeout);
 

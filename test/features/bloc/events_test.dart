@@ -47,6 +47,7 @@ void main() {
       expect(PlaybackListUpdated([song]).props, [
         [song],
         true,
+        0,
       ]);
       expect(
         PlaybackListUpdated([song], followsLibrary: false),
@@ -55,6 +56,7 @@ void main() {
 
       expect(PlaybackLibraryUpdated([song]).props, [
         [song],
+        0,
       ]);
       expect(
         PlaybackDurationUpdated(const Duration(minutes: 1)).props,

@@ -10,6 +10,7 @@ import 'package:mechanix_music/features/music/presentation/widgets/landing/landi
 import 'package:mechanix_music/features/music/presentation/widgets/music/audio_output_sheet.dart';
 import 'package:mechanix_music/features/music/presentation/widgets/music/music_bottom_bar.dart';
 import 'package:mechanix_music/features/music/presentation/widgets/all_tracks/all_tracks_view.dart';
+import 'package:mechanix_music/features/music/presentation/widgets/all_tracks/sort_tracks_sheet.dart';
 import 'package:mechanix_music/l10n/music_localizations.dart';
 import 'package:widgets/widgets.dart';
 
@@ -54,8 +55,7 @@ class _MusicScreenState extends State<MusicScreen> {
       ).push(MaterialPageRoute(builder: (_) => const SearchScreen())),
     );
 
-    // All tracks uses the small app bar. Its folder button opens the file
-    // browser, which is where songs are imported into the library.
+    // All tracks uses the small app bar, with a sort button.
     if (_currentTab == MusicTab.allTracks) {
       return MechanixAppBar.small(
         primary: false,
@@ -65,7 +65,19 @@ class _MusicScreenState extends State<MusicScreen> {
         titleTextStyle: theme.textTheme.headlineSmall!.copyWith(
           color: theme.colorScheme.onSecondaryContainer,
         ),
-        actions: [searchButton],
+        actions: [
+          MechanixIconButton.standard(
+            key: const ValueKey('music_sort_button'),
+            type: IconButtonType.rounded,
+            size: IconButtonSize.small,
+            icon: ImageIcon(
+              const AssetImage(MusicIcons.sort),
+              color: theme.colorScheme.onSurface,
+            ),
+            onPressed: () => showSortTracksSheet(context),
+          ),
+          searchButton,
+        ],
       );
     }
 

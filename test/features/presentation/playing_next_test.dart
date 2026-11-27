@@ -138,7 +138,8 @@ void main() {
     list.onReorderItem!(3, 0); // dropped on a played song: first to come
     list.onReorderItem!(0, 3); // a played song can't move
 
-    expect(verify(() => bloc.add(captureAny())).captured, const [
+    final added = verify(() => bloc.add(captureAny())).captured;
+    expect(added.whereType<PlaybackQueueMoved>(), const [
       PlaybackQueueMoved(2, 0),
       PlaybackQueueMoved(0, 1),
       PlaybackQueueMoved(1, 0),
@@ -160,5 +161,32 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('playing_next_edit')), findsOneWidget);
     expect(removeButton(2), findsNothing);
+  });
+
+  testWidgets('reaching the last song asks for more songs', (tester) async {
+    await pumpPlayingNext(tester);
+    await tester.dragUntilVisible(
+      find.byKey(ValueKey('playing_next_${songs.last.path}')),
+      find.byKey(const ValueKey('playing_next_list')),
+      const Offset(-200, 0),
+    );
+
+    verify(
+      () => bloc.add(const PlaybackQueueEndReached()),
+    ).called(greaterThan(0));
+  });
+
+  testWidgets('the count includes library songs not loaded yet', (
+    tester,
+  ) async {
+    whenListen(
+      bloc,
+      states.stream,
+      initialState: playing(1).copyWith(unloadedCount: 26),
+    );
+    await pumpPlayingNext(tester);
+
+    // Songs 2, 3 and 4 plus 26 not loaded yet.
+    expect(find.text('[29]'), findsOneWidget);
   });
 }

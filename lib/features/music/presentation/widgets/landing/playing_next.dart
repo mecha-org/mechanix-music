@@ -80,13 +80,17 @@ class _PlayingNextState extends State<PlayingNext> {
         s.song?.path,
         s.currentIndex,
         s.anchorPath,
+        s.unloadedCount,
       ),
       builder: (context, _) {
-        final queue = context.read<PlaybackBloc>().state.queue; // once
+        final state = context.read<PlaybackBloc>().state;
+        final queue = state.queue; // once
         final songs = queue.songs;
         final current = queue.currentIndex;
         final upcoming = songs.length - current - 1;
-        final count = upcoming.toString().padLeft(2, '0');
+        // Includes songs not loaded yet, so it stays put while scrolling.
+        final toCome = upcoming + state.unloadedCount;
+        final count = toCome.toString().padLeft(2, '0');
         _scrollToCurrent(current);
         // Nothing left to edit: editing ends (and stays off when songs are
         // queued again).
@@ -158,11 +162,14 @@ class _PlayingNextState extends State<PlayingNext> {
                       itemCount: songs.length,
                       separatorBuilder: (_, _) =>
                           const SizedBox(width: PlayingNext._gap),
-                      itemBuilder: (context, index) => _UpNextTile(
-                        song: songs[index],
-                        isCurrent: index == current,
-                        isPlayed: index < current,
-                      ),
+                      itemBuilder: (context, index) {
+                        _loadMoreAt(context, index, songs.length);
+                        return _UpNextTile(
+                          song: songs[index],
+                          isCurrent: index == current,
+                          isPlayed: index < current,
+                        );
+                      },
                     ),
             ),
           ],
@@ -212,6 +219,7 @@ class _EditableQueue extends StatelessWidget {
       proxyDecorator: (child, _, _) =>
           Material(type: MaterialType.transparency, child: child),
       itemBuilder: (context, index) {
+        _loadMoreAt(context, index, songs.length);
         final song = songs[index];
         final upcoming = index > current;
         final tile = _UpNextTile(
@@ -234,6 +242,13 @@ class _EditableQueue extends StatelessWidget {
         );
       },
     );
+  }
+}
+
+/// Loads more songs when the last tile is built.
+void _loadMoreAt(BuildContext context, int index, int length) {
+  if (index == length - 1) {
+    context.read<PlaybackBloc>().add(const PlaybackQueueEndReached());
   }
 }
 

@@ -1,8 +1,9 @@
+import 'package:mechanix_music/core/utils/enums.dart';
 import 'package:mechanix_music/features/music/data/models/song_model.dart';
 import 'package:mechanix_music/features/music/data/services/song_index.dart';
 
 /// [SongIndex] kept in memory, for tests that must not load the native
-/// Tantivy library. Mirrors `TantivySongIndex`: title order, prefix search
+/// Tantivy library. Mirrors `TantivySongIndex`: sort order, prefix search
 /// over title/artist/album, `/artist/album` grouping.
 class InMemorySongIndex implements SongIndex {
   /// Stored songs by path.
@@ -18,8 +19,9 @@ class InMemorySongIndex implements SongIndex {
   }
 
   /// Copies keep only what the index stores, like the real one.
-  static SongModel _copy(SongModel song) =>
-      SongModel.fromJson(song.toJson())..isExternal = false;
+  static SongModel _copy(SongModel song) => SongModel.fromJson(song.toJson())
+    ..addedAt ??= song.lastScannedAt
+    ..isExternal = false;
 
   List<SongModel> get _sorted => songs.values.map(_copy).toList()
     ..sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
@@ -32,9 +34,19 @@ class InMemorySongIndex implements SongIndex {
 
   @override
   Future<List<SongModel>> getPage({
-    required int offset,
+    String? afterPath,
     required int limit,
-  }) async => _sorted.skip(offset).take(limit).toList();
+    SongSort sort = SongSort.title,
+  }) async {
+    final sorted = songs.values.map(_copy).toList()
+      ..sort((a, b) => compareSongs(sort, a, b));
+    var start = 0;
+    if (afterPath != null) {
+      start = sorted.indexWhere((s) => s.path == afterPath) + 1;
+      if (start == 0) throw StateError('No song at $afterPath');
+    }
+    return sorted.skip(start).take(limit).toList();
+  }
 
   @override
   Future<List<SongModel>> getByPaths(List<String> paths) async => [

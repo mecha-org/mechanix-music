@@ -7,6 +7,7 @@ import 'package:flutter_tantivy/flutter_tantivy.dart' as tantivy;
 import 'package:mechanix_music/core/exceptions/app_exceptions.dart';
 import 'package:mechanix_music/core/utils/app_logger.dart';
 import 'package:mechanix_music/core/utils/constants.dart';
+import 'package:mechanix_music/core/utils/enums.dart';
 import 'package:mechanix_music/features/music/data/models/song_model.dart';
 import 'package:mechanix_music/features/music/data/services/song_index.dart';
 import 'package:path/path.dart' as p;
@@ -82,14 +83,21 @@ class TantivySongIndex implements SongIndex {
 
   @override
   Future<List<SongModel>> getPage({
-    required int offset,
+    String? afterPath,
     required int limit,
+    SongSort sort = SongSort.title,
   }) async {
     await open();
     final tracks = await tantivy.listDocuments(
-      offset: BigInt.from(offset),
+      afterPath: afterPath,
       limit: BigInt.from(limit),
-      sort: tantivy.SortOrder.title,
+      sort: switch (sort) {
+        SongSort.title => tantivy.SortOrder.title,
+        SongSort.artist => tantivy.SortOrder.artist,
+        SongSort.dateAdded => tantivy.SortOrder.dateAdded,
+        SongSort.duration => tantivy.SortOrder.duration,
+      },
+      descending: sort.descending,
     );
     return _toSongs(tracks);
   }
@@ -194,6 +202,9 @@ class TantivySongIndex implements SongIndex {
     size: _u64(song.size),
     artworkBase64: song.artworkBase64,
     lastScannedAt: _u64(song.lastScannedAt.millisecondsSinceEpoch),
+    addedAt: _u64(
+      (song.addedAt ?? song.lastScannedAt).millisecondsSinceEpoch,
+    ),
   );
 
   static List<SongModel> _toSongs(List<tantivy.Document> tracks) =>
@@ -216,5 +227,9 @@ class TantivySongIndex implements SongIndex {
     ),
     mtime: track.mtime.toInt(),
     size: track.size.toInt(),
+    addedAt: DateTime.fromMillisecondsSinceEpoch(
+      track.addedAt.toInt(),
+      isUtc: true,
+    ),
   );
 }

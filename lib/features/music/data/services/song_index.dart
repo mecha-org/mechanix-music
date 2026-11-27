@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:mechanix_music/core/utils/enums.dart';
 import 'package:mechanix_music/features/music/data/models/album_summary.dart';
 import 'package:mechanix_music/features/music/data/models/song_model.dart';
 
@@ -40,8 +41,13 @@ abstract class SongIndex {
   /// Number of songs.
   Future<int> count();
 
-  /// A page of songs ordered by title (case-insensitive).
-  Future<List<SongModel>> getPage({required int offset, required int limit});
+  /// Up to [limit] songs in [sort] order after the song at [afterPath].
+  /// Throws if there is none.
+  Future<List<SongModel>> getPage({
+    String? afterPath,
+    required int limit,
+    SongSort sort = SongSort.title,
+  });
 
   /// Songs at [paths], in the same order. Unknown paths are skipped.
   Future<List<SongModel>> getByPaths(List<String> paths);

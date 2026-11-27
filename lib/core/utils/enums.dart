@@ -33,3 +33,19 @@ enum SleepTimerOption {
   /// Time until playback pauses, or null for [endOfTrack].
   final Duration? duration;
 }
+
+/// Order of the All tracks list.
+enum SongSort {
+  title,
+  artist,
+
+  /// Newest first.
+  dateAdded(descending: true),
+
+  /// Shortest first.
+  duration;
+
+  const SongSort({this.descending = false});
+
+  final bool descending;
+}

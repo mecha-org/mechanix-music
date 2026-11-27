@@ -144,16 +144,33 @@ class SongRepositoryImpl extends SongRepository {
   List<SongModel> _decorateAll(List<SongModel> songs) =>
       songs.map(_decorate).toList();
 
-  /// Stamps [song] with the current mtime/size of its file.
+  /// Stamps [song] with its file's mtime/size, and a new song with its
+  /// date added (file mtime in the music folder, else now).
   Future<SongModel> _withFileStat(SongModel song) async {
     final stat = await File(song.path).stat();
-    if (stat.type != FileSystemEntityType.notFound) {
+    final found = stat.type != FileSystemEntityType.notFound;
+    if (found) {
       song.mtime = stat.modified.millisecondsSinceEpoch;
       song.size = stat.size;
     }
-    song.lastScannedAt = DateTime.now().toUtc();
+    final now = DateTime.now().toUtc();
+    song.lastScannedAt = now;
+    if (song.addedAt == null) {
+      final modified = DateTime.fromMillisecondsSinceEpoch(
+        song.mtime,
+        isUtc: true,
+      );
+      final fromFile =
+          found && _isInMusicDir(song.path) && modified.isBefore(now);
+      song.addedAt = fromFile ? modified : now;
+    }
     return song;
   }
+
+  /// Keeps the id and date added of [old].
+  static void _keepIdentity(SongModel song, SongModel old) => song
+    ..id = old.id
+    ..addedAt = old.addedAt;
 
   /// Refreshes favourite flags and announces the songs that changed.
   Future<void> _onFavouritesChanged() async {
@@ -279,8 +296,7 @@ class SongRepositoryImpl extends SongRepository {
         };
         final updated = <SongModel>[];
         for (final song in await _scan(batch)) {
-          // Keep the id stable across rescans.
-          if (previous[song.path] case final old?) song.id = old.id;
+          if (previous[song.path] case final old?) _keepIdentity(song, old);
           updated.add(await _withFileStat(song));
         }
         await _index.upsert(updated);
@@ -330,11 +346,14 @@ class SongRepositoryImpl extends SongRepository {
 
   @override
   Future<List<SongModel>> getSongs({
-    required int offset,
+    String? after,
     required int limit,
+    SongSort sort = SongSort.title,
   }) async {
     await ensureOpen();
-    return _decorateAll(await _index.getPage(offset: offset, limit: limit));
+    return _decorateAll(
+      await _index.getPage(afterPath: after, limit: limit, sort: sort),
+    );
   }
 
   @override
@@ -728,7 +747,7 @@ class SongRepositoryImpl extends SongRepository {
       if (song == null) return;
 
       final existing = await _index.getByPaths([path]);
-      if (existing.isNotEmpty) song.id = existing.first.id;
+      if (existing.isNotEmpty) _keepIdentity(song, existing.first);
 
       await _index.upsert([await _withFileStat(song)]);
       AppLogger.i('[FileWatcher] Upserted: $path');
@@ -755,7 +774,7 @@ class SongRepositoryImpl extends SongRepository {
 
       final updated = await _fileScannerService.buildSongModel(newPath);
       if (updated == null) return;
-      updated.id = existing.id;
+      _keepIdentity(updated, existing);
 
       await _index.delete([oldPath]);
       await _index.upsert([await _withFileStat(updated)]);

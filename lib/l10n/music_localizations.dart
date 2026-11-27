@@ -358,6 +358,36 @@ abstract class AppLocalizations {
   /// **'This song is already in queue'**
   String get alreadyInQueue;
 
+  /// No description provided for @sortBy.
+  ///
+  /// In en, this message translates to:
+  /// **'Sort by'**
+  String get sortBy;
+
+  /// No description provided for @sortTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Title'**
+  String get sortTitle;
+
+  /// No description provided for @sortArtist.
+  ///
+  /// In en, this message translates to:
+  /// **'Artist'**
+  String get sortArtist;
+
+  /// No description provided for @sortDateAdded.
+  ///
+  /// In en, this message translates to:
+  /// **'Date added'**
+  String get sortDateAdded;
+
+  /// No description provided for @sortDuration.
+  ///
+  /// In en, this message translates to:
+  /// **'Duration'**
+  String get sortDuration;
+
   /// No description provided for @addToPlaylist.
   ///
   /// In en, this message translates to:

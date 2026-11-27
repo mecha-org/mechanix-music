@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:mechanix_music/core/utils/enums.dart';
 import 'package:mechanix_music/features/music/data/models/song_model.dart';
 
 sealed class SongEvent extends Equatable {
@@ -51,4 +52,13 @@ final class SongToggleFavourite extends SongEvent {
 
   @override
   List<Object?> get props => [song];
+}
+
+/// Lists the songs in [sort] order.
+final class SongSortChanged extends SongEvent {
+  final SongSort sort;
+  const SongSortChanged(this.sort);
+
+  @override
+  List<Object?> get props => [sort];
 }

@@ -68,20 +68,44 @@ class PlaybackPlayPrevious extends PlaybackEvent {
 class PlaybackListUpdated extends PlaybackEvent {
   final List<SongModel> playbackList;
   final bool followsLibrary;
-  const PlaybackListUpdated(this.playbackList, {this.followsLibrary = true});
+
+  /// Library songs not loaded yet (with [followsLibrary]).
+  final int unloadedCount;
+  const PlaybackListUpdated(
+    this.playbackList, {
+    this.followsLibrary = true,
+    this.unloadedCount = 0,
+  });
 
   @override
-  List<Object?> get props => [playbackList, followsLibrary];
+  List<Object?> get props => [playbackList, followsLibrary, unloadedCount];
+}
+
+/// "Playing next" reached its last song.
+class PlaybackQueueEndReached extends PlaybackEvent {
+  const PlaybackQueueEndReached();
+}
+
+/// Songs whose file is gone.
+class PlaybackSongsRemoved extends PlaybackEvent {
+  final List<String> paths;
+  const PlaybackSongsRemoved(this.paths);
+
+  @override
+  List<Object?> get props => [paths];
 }
 
 /// The library list changed (from SongBloc). Only applied while the queue
 /// follows the library.
 class PlaybackLibraryUpdated extends PlaybackEvent {
   final List<SongModel> songs;
-  const PlaybackLibraryUpdated(this.songs);
+
+  /// Library songs not loaded yet.
+  final int unloadedCount;
+  const PlaybackLibraryUpdated(this.songs, {this.unloadedCount = 0});
 
   @override
-  List<Object?> get props => [songs];
+  List<Object?> get props => [songs, unloadedCount];
 }
 
 class PlaybackDurationUpdated extends PlaybackEvent {

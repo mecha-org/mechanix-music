@@ -23,7 +23,12 @@ class AllTracksTile extends StatelessWidget {
 
     // Play from the library order (the queue may hold a folder's songs).
     if (library is SongLoaded) {
-      playback.add(PlaybackListUpdated(library.songs));
+      playback.add(
+        PlaybackListUpdated(
+          library.songs,
+          unloadedCount: library.unloadedCount,
+        ),
+      );
     }
     playback.add(PlaybackPlay(song));
   }

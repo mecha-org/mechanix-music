@@ -42,6 +42,7 @@ void main() {
   late StreamController<SongState> songStateController;
   late StreamController<Duration> durationController;
   late StreamController<void> completeController;
+  late StreamController<List<String>> removedController;
 
   setUpAll(() {
     registerFallbackValue(Duration.zero);
@@ -58,6 +59,7 @@ void main() {
     songStateController = StreamController<SongState>.broadcast();
     durationController = StreamController<Duration>.broadcast();
     completeController = StreamController<void>.broadcast();
+    removedController = StreamController<List<String>>.broadcast();
 
     var isPlaying = false;
     when(() => repo.isPlaying).thenAnswer((_) => isPlaying);
@@ -85,6 +87,9 @@ void main() {
     when(() => repo.getDuration()).thenAnswer((_) async => null);
 
     when(() => songBloc.songRepository).thenReturn(songRepo);
+    when(
+      () => songRepo.onSongsRemoved,
+    ).thenAnswer((_) => removedController.stream);
     when(() => songRepo.deleteSongByPath(any())).thenAnswer((_) async {});
 
     configureSongBloc(const SongInitial());
@@ -94,6 +99,7 @@ void main() {
     await songStateController.close();
     await durationController.close();
     await completeController.close();
+    await removedController.close();
   });
 
   PlaybackBloc buildBloc() => PlaybackBloc(repo, songBloc);
@@ -622,7 +628,7 @@ void main() {
     );
 
     blocTest<PlaybackBloc, PlaybackState>(
-      'stops playback when the current song is removed from the library',
+      'keeps playing a song missing from the loaded library list',
       build: buildBloc,
       seed: () => PlaybackState(
         status: PlaybackStatus.playing,
@@ -632,8 +638,99 @@ void main() {
       ),
       act: (bloc) =>
           bloc.add(PlaybackLibraryUpdated([list5[0], list5[1], list5[3]])),
+      expect: () => [
+        PlaybackState(
+          status: PlaybackStatus.playing,
+          song: list5[2],
+          playbackList: [list5[0], list5[1], list5[3]],
+          currentIndex: -1,
+        ),
+      ],
+      verify: (_) => verifyNever(() => repo.stop()),
+    );
+
+    blocTest<PlaybackBloc, PlaybackState>(
+      'stops playback when the current song leaves the library',
+      build: buildBloc,
+      seed: () => PlaybackState(
+        status: PlaybackStatus.playing,
+        song: list5[2],
+        playbackList: list5,
+        currentIndex: 2,
+      ),
+      act: (_) => removedController.add([list5[2].path]),
       expect: () => const [PlaybackState(status: PlaybackStatus.stopped)],
       verify: (_) => verify(() => repo.stop()).called(1),
+    );
+
+    blocTest<PlaybackBloc, PlaybackState>(
+      'the end of the library queue loads the next page',
+      build: buildBloc,
+      seed: () => PlaybackState(song: list5[0], playbackList: list5),
+      act: (bloc) => bloc.add(const PlaybackQueueEndReached()),
+      verify: (_) => verify(() => songBloc.add(const SongLoadMore())).called(1),
+    );
+
+    blocTest<PlaybackBloc, PlaybackState>(
+      'counts the library songs not loaded yet',
+      build: buildBloc,
+      act: (bloc) =>
+          bloc.add(PlaybackLibraryUpdated(list5, unloadedCount: 26)),
+      verify: (bloc) => expect(bloc.state.unloadedCount, 26),
+    );
+
+    blocTest<PlaybackBloc, PlaybackState>(
+      'a playlist has no songs left to load',
+      build: buildBloc,
+      seed: () => const PlaybackState(unloadedCount: 26),
+      act: (bloc) => bloc.add(
+        PlaybackListUpdated(list5, followsLibrary: false, unloadedCount: 9),
+      ),
+      verify: (bloc) => expect(bloc.state.unloadedCount, 0),
+    );
+
+    blocTest<PlaybackBloc, PlaybackState>(
+      'playing from All tracks keeps the library songs not loaded yet',
+      build: buildBloc,
+      act: (bloc) => bloc.add(PlaybackListUpdated(list5, unloadedCount: 26)),
+      verify: (bloc) => expect(bloc.state.unloadedCount, 26),
+    );
+
+    test('starts with the library songs not loaded yet', () {
+      configureSongBloc(
+        SongLoaded(songs: list5, hasMore: true, totalCount: 31),
+      );
+      final bloc = buildBloc();
+      addTearDown(bloc.close);
+
+      expect(bloc.state.playbackList, list5);
+      expect(bloc.state.unloadedCount, 26);
+    });
+
+    blocTest<PlaybackBloc, PlaybackState>(
+      'the end of a playlist queue loads nothing',
+      build: buildBloc,
+      seed: () => PlaybackState(
+        song: list5[0],
+        playbackList: list5,
+        followsLibrary: false,
+      ),
+      act: (bloc) => bloc.add(const PlaybackQueueEndReached()),
+      verify: (_) => verifyNever(() => songBloc.add(const SongLoadMore())),
+    );
+
+    blocTest<PlaybackBloc, PlaybackState>(
+      'other songs leaving the library do not stop playback',
+      build: buildBloc,
+      seed: () => PlaybackState(
+        status: PlaybackStatus.playing,
+        song: list5[2],
+        playbackList: list5,
+        currentIndex: 2,
+      ),
+      act: (bloc) => bloc.add(PlaybackSongsRemoved([list5[0].path])),
+      expect: () => const <PlaybackState>[],
+      verify: (_) => verifyNever(() => repo.stop()),
     );
 
     blocTest<PlaybackBloc, PlaybackState>(

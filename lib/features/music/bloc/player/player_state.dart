@@ -45,6 +45,9 @@ class PlaybackState extends Equatable {
   /// they play once. Library updates keep them out of the order.
   final Set<String> movedToQueue;
 
+  /// Library songs not loaded yet (when following the library).
+  final int unloadedCount;
+
   const PlaybackState({
     this.status = PlaybackStatus.initial,
     this.song,
@@ -60,6 +63,7 @@ class PlaybackState extends Equatable {
     this.sleepTimer,
     this.followsLibrary = true,
     this.movedToQueue = const {},
+    this.unloadedCount = 0,
   });
 
   /// The order songs are played in: shuffled or library order.
@@ -152,6 +156,7 @@ class PlaybackState extends Equatable {
     Object? sleepTimer = _unset,
     bool? followsLibrary,
     Set<String>? movedToQueue,
+    int? unloadedCount,
   }) => PlaybackState(
     status: status ?? this.status,
     song: song ?? this.song,
@@ -171,6 +176,7 @@ class PlaybackState extends Equatable {
         : sleepTimer as SleepTimerOption?,
     followsLibrary: followsLibrary ?? this.followsLibrary,
     movedToQueue: movedToQueue ?? this.movedToQueue,
+    unloadedCount: unloadedCount ?? this.unloadedCount,
   );
 
   @override
@@ -189,5 +195,6 @@ class PlaybackState extends Equatable {
     sleepTimer,
     followsLibrary,
     movedToQueue,
+    unloadedCount,
   ];
 }

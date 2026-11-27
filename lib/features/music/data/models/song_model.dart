@@ -1,3 +1,5 @@
+import 'package:mechanix_music/core/utils/enums.dart';
+
 /// A song in the library.
 ///
 /// Songs are stored in the Tantivy music index (see `TantivySongIndex`).
@@ -29,6 +31,9 @@ class SongModel {
   /// Size of the file in bytes when it was scanned.
   int size;
 
+  /// When the song entered the library (UTC).
+  DateTime? addedAt;
+
   bool isExternal; // If true, this song was imported from an external directory
 
   /// Whether the user added this song to their favourites.
@@ -45,6 +50,7 @@ class SongModel {
     DateTime? lastScannedAt,
     this.mtime = 0,
     this.size = 0,
+    this.addedAt,
     this.isExternal = false,
     this.isFavourite = false,
   }) : lastScannedAt = lastScannedAt ?? DateTime.now().toUtc();
@@ -81,6 +87,7 @@ class SongModel {
     'lastScannedAt': lastScannedAt.toUtc().toIso8601String(),
     'mtime': mtime,
     'size': size,
+    'addedAt': addedAt?.toUtc().toIso8601String(),
     'isExternal': isExternal,
   };
 
@@ -97,6 +104,42 @@ class SongModel {
     )?.toUtc(),
     mtime: json['mtime'] as int? ?? 0,
     size: json['size'] as int? ?? 0,
+    addedAt: DateTime.tryParse(json['addedAt'] as String? ?? '')?.toUtc(),
     isExternal: json['isExternal'] as bool? ?? false,
   );
+}
+
+/// Orders songs like the index does for [sort].
+int compareSongs(SongSort sort, SongModel a, SongModel b) {
+  String key(String value) => value.trim().toLowerCase();
+  int byTitle() => key(a.title).compareTo(key(b.title));
+  int byArtist() => key(a.artist).compareTo(key(b.artist));
+  int directed(int order) => sort.descending ? -order : order;
+
+  final first = switch (sort) {
+    SongSort.title => directed(byTitle()),
+    SongSort.artist => directed(byArtist()),
+    SongSort.dateAdded => _nullsLast(a.addedAt, b.addedAt, directed),
+    SongSort.duration => _nullsLast(
+      a.durationInSeconds,
+      b.durationInSeconds,
+      directed,
+    ),
+  };
+  if (first != 0) return first;
+  final second = switch (sort) {
+    SongSort.title => byArtist(),
+    SongSort.artist => byTitle(),
+    SongSort.dateAdded || SongSort.duration => 0,
+  };
+  return second != 0 ? second : a.path.compareTo(b.path);
+}
+
+int _nullsLast<T extends Comparable<Object>>(
+  T? a,
+  T? b,
+  int Function(int order) directed,
+) {
+  if (a == null || b == null) return a == null ? (b == null ? 0 : 1) : -1;
+  return directed(a.compareTo(b));
 }
